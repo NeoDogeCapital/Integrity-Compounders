@@ -1,0 +1,26 @@
+ticker,shares,avg_cost,sleeve,is_discretionary
+FCX,608.7354,65.71,Core Compounders,0
+VIAV,823.7232,48.56,Core Compounders,0
+NVDA,189.4478,211.14,Catalyst Momentum,0
+ATI,228.3626,175.16,Core Compounders,0
+STRL,46.4662,860.84,Catalyst Momentum,0
+LLY,36.1991,1105.0,Catalyst Momentum,0
+LRCX,125.715,318.18,Core Compounders,0
+CAT,45.6689,875.87,Core Compounders,0
+MU,305.8,130.80,High Conviction Speculative,1
+AMAT,88.877,450.06,Core Compounders,0
+CIEN,68.9382,580.23,Core Compounders,0
+GEV,41.3087,968.32,Core Compounders,0
+TER,106.8633,374.31,Core Compounders,0
+AAPL,128.1805,312.06,Catalyst Momentum,0
+LEA,279.4857,143.12,Core Compounders,0
+PLTR,437.0,91.50,High Conviction Speculative,1
+ACN,213.8237,187.07,Catalyst Momentum,0
+NOC,70.9622,563.68,High Conviction Speculative,1
+SEI,500.0,79.90,High Conviction Speculative,1
+DGX,205.2335,194.9,High Conviction Speculative,1
+NVT,239.5353,166.99,Core Compounders,0
+LEU,476.2,84.00,High Conviction Speculative,1
+CNM,808.8979,49.45,Catalyst Momentum,0
+MTD,34.379,1163.5,Core Compounders,0
+TMO,82.4,485.18,High Conviction Speculative,1

@@ -1,0 +1,22 @@
+{
+  "template_folder": "_templates",
+  "templates_pairs": [],
+  "trigger_on_file_creation": true,
+  "auto_jump_to_cursor": true,
+  "enable_system_commands": false,
+  "shell_path": "",
+  "user_scripts_folder": "",
+  "enable_folder_templates": true,
+  "folder_templates": [
+    { "folder": "Companies",        "template": "_templates/company-research-note.md" },
+    { "folder": "Clippings",        "template": "_templates/company-research-note.md" },
+    { "folder": "Earnings",         "template": "_templates/earnings-note.md" },
+    { "folder": "Management",       "template": "_templates/management-interview-note.md" },
+    { "folder": "Investor-Letters", "template": "_templates/company-research-note.md" },
+    { "folder": "Quarterly-Reviews","template": "_templates/thesis-review-note.md" },
+    { "folder": "Positions",        "template": "_templates/thesis-review-note.md" }
+  ],
+  "syntax_highlighting": true,
+  "enabled_templates_hotkeys": [],
+  "startup_templates": []
+}

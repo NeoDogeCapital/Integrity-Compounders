@@ -1,0 +1,9 @@
+{
+  "annotation_folder": "PDFs/",
+  "custom_default_path": "PDFs/",
+  "useCustomDefaultPath": true,
+  "deafultDarkMode": false,
+  "debugLogging": false,
+  "loadIFrameDelay": 1500,
+  "convertSvgToPng": false
+}

@@ -1,0 +1,7 @@
+{
+  "permissions": {
+    "allow": [
+      "PowerShell($env:PYTHONIOENCODING = \"utf-8\"; cd \"C:\\\\Users\\\\nikoc\\\\Downloads\\\\Integrity Compounders\"; python scripts/factor_exposure.py --snapshot --html 2>&1 | Select-String \"Snapshot|HTML|ERROR|Traceback|FLAGS|breach\")"
+    ]
+  }
+}

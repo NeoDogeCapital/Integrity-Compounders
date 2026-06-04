@@ -1,0 +1,214 @@
+{
+  "main": {
+    "id": "0a016166b3b6229b",
+    "type": "split",
+    "children": [
+      {
+        "id": "86ddb54f07d614a8",
+        "type": "tabs",
+        "children": [
+          {
+            "id": "212c5a30bd4378e1",
+            "type": "leaf",
+            "state": {
+              "type": "markdown",
+              "state": {
+                "file": "raw/2026-06-04-Advanced graphing and analytical tools for investors 1.md",
+                "mode": "source",
+                "source": false
+              },
+              "icon": "lucide-file",
+              "title": "2026-06-04-Advanced graphing and analytical tools for investors 1"
+            }
+          }
+        ]
+      }
+    ],
+    "direction": "vertical"
+  },
+  "left": {
+    "id": "e5d03512e3e94852",
+    "type": "split",
+    "children": [
+      {
+        "id": "e657f3bb0cb87503",
+        "type": "tabs",
+        "children": [
+          {
+            "id": "03733c71ed0d0f47",
+            "type": "leaf",
+            "state": {
+              "type": "file-explorer",
+              "state": {
+                "sortOrder": "alphabetical",
+                "autoReveal": false
+              },
+              "icon": "lucide-folder-closed",
+              "title": "Files"
+            }
+          },
+          {
+            "id": "672686c0c7ebad90",
+            "type": "leaf",
+            "state": {
+              "type": "search",
+              "state": {
+                "query": "",
+                "matchingCase": false,
+                "explainSearch": false,
+                "collapseAll": false,
+                "extraContext": false,
+                "sortOrder": "alphabetical"
+              },
+              "icon": "lucide-search",
+              "title": "Search"
+            }
+          },
+          {
+            "id": "794ba43267b4bd8a",
+            "type": "leaf",
+            "state": {
+              "type": "bookmarks",
+              "state": {},
+              "icon": "lucide-bookmark",
+              "title": "Bookmarks"
+            }
+          }
+        ]
+      }
+    ],
+    "direction": "horizontal",
+    "width": 300
+  },
+  "right": {
+    "id": "e3d4abe296c7de14",
+    "type": "split",
+    "children": [
+      {
+        "id": "53027cab3a24c3b1",
+        "type": "tabs",
+        "children": [
+          {
+            "id": "11d5aab839a39052",
+            "type": "leaf",
+            "state": {
+              "type": "backlink",
+              "state": {
+                "file": "raw/2026-05-29-Micron and Sandisk rally on new Street-high price targets from Susquehanna.md",
+                "collapseAll": false,
+                "extraContext": false,
+                "sortOrder": "alphabetical",
+                "showSearch": false,
+                "searchQuery": "",
+                "backlinkCollapsed": false,
+                "unlinkedCollapsed": true
+              },
+              "icon": "links-coming-in",
+              "title": "Backlinks for 2026-05-29-Micron and Sandisk rally on new Street-high price targets from Susquehanna"
+            }
+          },
+          {
+            "id": "1d1ef194d9267038",
+            "type": "leaf",
+            "state": {
+              "type": "outgoing-link",
+              "state": {
+                "file": "raw/2026-05-29-Micron and Sandisk rally on new Street-high price targets from Susquehanna.md",
+                "linksCollapsed": false,
+                "unlinkedCollapsed": true
+              },
+              "icon": "links-going-out",
+              "title": "Outgoing links from 2026-05-29-Micron and Sandisk rally on new Street-high price targets from Susquehanna"
+            }
+          },
+          {
+            "id": "fc4a0805f4587197",
+            "type": "leaf",
+            "state": {
+              "type": "tag",
+              "state": {
+                "sortOrder": "frequency",
+                "useHierarchy": true,
+                "showSearch": false,
+                "searchQuery": ""
+              },
+              "icon": "lucide-tags",
+              "title": "Tags"
+            }
+          },
+          {
+            "id": "3e288958f158fad2",
+            "type": "leaf",
+            "state": {
+              "type": "all-properties",
+              "state": {
+                "sortOrder": "frequency",
+                "showSearch": false,
+                "searchQuery": ""
+              },
+              "icon": "lucide-archive",
+              "title": "All properties"
+            }
+          },
+          {
+            "id": "76566dba337ec709",
+            "type": "leaf",
+            "state": {
+              "type": "outline",
+              "state": {
+                "file": "raw/2026-05-29-Micron and Sandisk rally on new Street-high price targets from Susquehanna.md",
+                "followCursor": false,
+                "showSearch": false,
+                "searchQuery": ""
+              },
+              "icon": "lucide-list",
+              "title": "Outline of 2026-05-29-Micron and Sandisk rally on new Street-high price targets from Susquehanna"
+            }
+          }
+        ]
+      }
+    ],
+    "direction": "horizontal",
+    "width": 300,
+    "collapsed": true
+  },
+  "left-ribbon": {
+    "hiddenItems": {
+      "switcher:Open quick switcher": false,
+      "graph:Open graph view": false,
+      "canvas:Create new canvas": false,
+      "daily-notes:Open today's daily note": false,
+      "templates:Insert template": false,
+      "command-palette:Open command palette": false,
+      "bases:Create new base": false,
+      "templater-obsidian:Templater": false
+    }
+  },
+  "active": "212c5a30bd4378e1",
+  "lastOpenFiles": [
+    "raw/2026-06-04-Advanced graphing and analytical tools for investors 1.md",
+    "_templates/sec-filing-note.md",
+    "_templates/thesis-review-note.md",
+    "_templates/management-interview-note.md",
+    "_templates/earnings-note.md",
+    "_templates/earnings-note.md.tmp.43028.60853d9fdfbf",
+    "_templates/company-research-note.md",
+    "_templates/company-research-note.md.tmp.43028.24921d0725f5",
+    "Quarterly-Reviews",
+    "Watchlist",
+    "Positions",
+    "Decisions",
+    "Synthesis",
+    "Investor-Letters",
+    "Management",
+    "Earnings",
+    "2026-06-04.md",
+    "raw/2026-06-04-Advanced graphing and analytical tools for investors.md",
+    "raw/2026-05-29-Micron and Sandisk rally on new Street-high price targets from Susquehanna.md",
+    "Welcome.md",
+    "CLAUDE.md",
+    "files/CLAUDE.md",
+    "CLAUDE.md.md",
+    "wiki/_master-index.md"
+  ]
+}
