@@ -1,7 +1,7 @@
 # Integrity Compounders OS — CLAUDE.md
 Concentrated equity portfolio · Integrity Wealth Partners · LPL Financial Affiliate
-GitHub: https://github.com/NeoDogeCapital/integrity-compounders
-Dashboard: https://NeoDogeCapital.github.io/integrity-compounders/
+GitHub: https://github.com/NeoDogeCapital/Integrity-Compounders
+Dashboard: https://NeoDogeCapital.github.io/Integrity-Compounders/
 
 ## Master Rulebook · v11.0 · June 2026
 > This file is read by Claude Code at the start of every session.
