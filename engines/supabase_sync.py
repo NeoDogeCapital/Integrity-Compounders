@@ -1,18 +1,12 @@
 """
-supabase_sync.py — Screener → Supabase sync
-Integrity Compounders Alpha System v10.0
+supabase_sync.py — Screener → Supabase sync  (bidirectional)
+Integrity Compounders Alpha System v11.0
+
+Push:  full IC pipeline → Supabase (companies + company_market_data)
+Pull:  QGS / GER / enriched fields → local SQLite
 
 Called automatically at the end of every `python run.py refresh`.
-Syncs the full enriched screener universe into two Supabase tables:
-
-  companies          — one row per ticker (upsert on ticker)
-  company_market_data — one row per ticker per date (upsert on company_id + data_date)
-
-Design principles:
-  - Non-fatal: if Supabase is unreachable, refresh still succeeds locally
-  - Additive: never deletes or overwrites in_portfolio / is_discretionary flags
-  - Fast: batches all writes in a single transaction per table
-  - Transparent: prints a one-line summary with counts
+Non-fatal: if Supabase is unreachable, refresh still succeeds locally.
 """
 
 import sys
@@ -29,36 +23,107 @@ import pandas as pd
 from config.settings import settings
 
 
-# ── Column maps ────────────────────────────────────────────────────────────────
-# Screener / IC-pipeline field → Supabase company_market_data column
-MARKET_DATA_MAP = {
-    "stock_price":          "current_price",
-    "market_cap":           "market_cap",
-    "roic":                 "roic_trailing",        # screener stores as plain %
-    "op_margin":            "gross_margin_trailing", # proxy (op margin ≈ gross margin)
-    "fcf_yield":            "fcf_yield_current",
-    "fwd_fcf_yield":        "fcf_yield_forward",
-    "rev_3y_cagr":          "revenue_3y_cagr_trailing",
-    "fwd_rev_cagr":         "fwd_revenue_3y_cagr",
-    "eps_3y_cagr":          "fwd_eps_3y_cagr",      # trailing EPS CAGR → used as proxy
-    "fwd_eps_cagr":         "fwd_eps_3y_cagr",      # override with actual fwd if present
-    "net_debt_ebitda":      "net_debt_ebitda",
-    "beta":                 "beta_col",              # renamed below to avoid conflict
-    "tr_1m":                "day_change_pct",        # 1-month return as day proxy
-    "earnings_mom_roc":     "earnings_momentum_roc",
-    "multiple_roc":         "multiple_roc",
-    "peg":                  "pe_forward",            # PEG as forward PE proxy
-}
+# ── IC pipeline fields to push into company_market_data ──────────────────────
+# (column_in_local_df, column_in_supabase, pg_type)
+IC_PIPELINE_FIELDS = [
+    # Screener fundamentals not yet in CMD
+    ("eps_surprise_q",    "eps_surprise_q",        "NUMERIC"),
+    ("rev_surprise_q",    "rev_surprise_q",        "NUMERIC"),
+    ("ytd_perf",          "ytd_perf",              "NUMERIC"),
+    ("tr_1m",             "momentum_1m",           "NUMERIC"),
+    ("tr_3y_cagr",        "tr_3y_cagr",            "NUMERIC"),
+    ("tr_5y_cagr",        "tr_5y_cagr",            "NUMERIC"),
+    ("eps_3y_cagr",       "eps_3y_cagr_trailing",  "NUMERIC"),
+    ("capex_to_rev",      "capex_to_rev",          "NUMERIC"),
+    ("peg",               "peg",                   "NUMERIC"),
+    ("op_margin",         "op_margin",             "NUMERIC"),
+    # IC pipeline computed
+    ("alignment_score",   "alignment_score",       "NUMERIC"),
+    ("alignment_bucket",  "alignment_bucket",      "TEXT"),
+    ("ev_rank",           "ev_rank",               "NUMERIC"),
+    ("fv_rank",           "fv_rank",               "NUMERIC"),
+    ("mc_rank",           "mc_rank",               "NUMERIC"),
+    ("vc_rank",           "vc_rank",               "NUMERIC"),
+    ("esv_rank",          "esv_rank",              "NUMERIC"),
+    ("pod",               "pod",                   "TEXT"),
+    ("pod_count",         "pod_count",             "INTEGER"),
+    ("pead_flag",         "pead_flag",             "TEXT"),
+    ("flip_score",        "flip_score",            "NUMERIC"),
+    ("flip_setup_type",   "flip_setup_type",       "TEXT"),
+    ("flip_price",        "flip_price",            "NUMERIC"),
+    ("flip_direction",    "flip_direction",        "TEXT"),
+    ("sensitivity_pct",   "sensitivity_pct",       "NUMERIC"),
+    ("migration_severity","migration_severity",    "TEXT"),
+    ("severity_tier",     "severity_tier",         "TEXT"),
+    ("gates_pass",        "gates_pass",            "INTEGER"),
+    ("gate_quality",      "gate_quality",          "BOOLEAN"),
+    ("gate_durability",   "gate_durability",       "BOOLEAN"),
+    ("gate_cash_conv",    "gate_cash_conv",        "BOOLEAN"),
+    ("gate_reinvestment", "gate_reinvestment",     "BOOLEAN"),
+    ("gate_balance_sheet","gate_balance_sheet",    "BOOLEAN"),
+    ("x_rev_mom",         "x_rev_mom",             "NUMERIC"),
+    ("x_eps_mom",         "x_eps_mom",             "NUMERIC"),
+    ("earnings_mom_roc",  "earnings_momentum_roc", "NUMERIC"),
+    ("multiple_roc",      "multiple_roc",          "NUMERIC"),
+    ("quadrant",          "quadrant",              "TEXT"),
+    ("watch_flags",       "watch_flags",           "TEXT"),
+    ("consecutive_fails", "consecutive_fails",     "INTEGER"),
+    # ── V12 ───────────────────────────────────────────────────────────────
+    ("alignment_score_v2",  "alignment_score_v2",  "NUMERIC"),
+    ("alignment_bucket_v2", "alignment_bucket_v2", "TEXT"),
+    ("fv_rank_v2",          "fv_rank_v2",          "NUMERIC"),
+    ("mc_rank_v2",          "mc_rank_v2",          "NUMERIC"),
+    ("esv_rank_v2",         "esv_rank_v2",         "NUMERIC"),
+    ("quality_profile",     "quality_profile",     "TEXT"),
+    ("indicators_pass",     "indicators_pass",     "INTEGER"),
+    ("earnings_quality_flag","earnings_quality_flag","TEXT"),
+    ("eps_acceleration",    "eps_acceleration",    "NUMERIC"),
+    ("gp_acceleration",     "gp_acceleration",     "NUMERIC"),
+    ("ind_capital_efficiency",     "gate_capital_efficiency",     "BOOLEAN"),
+    ("ind_pricing_power",          "gate_pricing_power",          "BOOLEAN"),
+    ("ind_operational_efficiency", "gate_operational_efficiency", "BOOLEAN"),
+    ("ind_cash_conversion",        "gate_cash_conversion",        "BOOLEAN"),
+    ("ind_growth_durability",      "gate_growth_durability",      "BOOLEAN"),
+    ("ind_balance_sheet",          "gate_balance_sheet",          "BOOLEAN"),
+]
 
-# Fields that come out of the IC pipeline (computed, not raw screener)
-PIPELINE_FIELDS = [
-    ("earnings_mom_roc", "earnings_momentum_roc"),
-    ("multiple_roc",     "multiple_roc"),
+# Fields to pull back from Supabase into local SQLite
+PULL_BACK_FIELDS = [
+    # QGS / GER
+    "quality_growth_score",
+    "growth_efficiency_ratio",
+    "qgs_tier",
+    "ger_flag",
+    "fcf_ev_yield",
+    "sbc_pct_revenue",
+    "shares_out_growth_3y_cagr",
+    "enterprise_value",
+    "fcf_margin_trailing",
+    # enriched market data
+    "momentum_3m",
+    "momentum_6m",
+    "momentum_12m",
+    "rsi_14",
+    "atr_14",
+    "short_interest_pct",
+    "institutional_own_pct",
+    "sma_50",
+    "sma_200",
+    "analyst_count",
+    "pe_forward",
+    "ev_ebitda",
+    "sbc_dollar",
+    "roic_spread",
+    "fcf_conversion",
+    # V12 enriched
+    "fcf_ev_rank",
+    "earnings_quality_flag",
+    "eps_acceleration",
+    "gp_acceleration",
 ]
 
 
 def _safe(v):
-    """Return None for NaN/inf, else the value."""
     if v is None:
         return None
     try:
@@ -68,109 +133,93 @@ def _safe(v):
         return str(v) if isinstance(v, str) else None
 
 
-def _get_or_create_companies(tickers: list[str], rows: dict[str, dict],
-                              cur) -> dict[str, str]:
-    """
-    Batch-upsert all tickers into companies in one query using executemany.
-    Returns {ticker: company_id} map.
-    Preserves existing in_portfolio / is_discretionary / thesis fields.
-    """
+def _safe_bool(v):
+    if v is None:
+        return None
+    if isinstance(v, bool):
+        return v
+    try:
+        return bool(int(float(v)))
+    except (TypeError, ValueError):
+        return None
+
+
+def _ensure_columns(cur) -> None:
+    """Add any IC pipeline columns missing from company_market_data."""
+    cur.execute("""
+        SELECT column_name FROM information_schema.columns
+        WHERE table_name = 'company_market_data' AND table_schema = 'public'
+    """)
+    existing = {r[0] for r in cur.fetchall()}
+
+    for _, sb_col, pg_type in IC_PIPELINE_FIELDS:
+        if sb_col not in existing:
+            cur.execute(f"""
+                ALTER TABLE company_market_data
+                ADD COLUMN IF NOT EXISTS {sb_col} {pg_type}
+            """)
+
+    # Also add alignment_score etc. to companies for quick lookup
+    cur.execute("""
+        SELECT column_name FROM information_schema.columns
+        WHERE table_name = 'companies' AND table_schema = 'public'
+    """)
+    existing_co = {r[0] for r in cur.fetchall()}
+    co_adds = [
+        ("alignment_score", "NUMERIC"),
+        ("ev_rank",         "NUMERIC"),
+        ("flip_score",      "NUMERIC"),
+        ("pead_flag",       "TEXT"),
+        ("pod",             "TEXT"),
+        ("pod_count",       "INTEGER"),
+    ]
+    for col, pg_type in co_adds:
+        if col not in existing_co:
+            cur.execute(f"ALTER TABLE companies ADD COLUMN IF NOT EXISTS {col} {pg_type}")
+
+
+def _get_or_create_companies(tickers, rows_dict, cur):
     batch = [
         (
             ticker,
-            str(rows.get(ticker, {}).get("company", ticker))[:200],
-            str(rows.get(ticker, {}).get("sector",  "") or "")[:100],
-            str(rows.get(ticker, {}).get("industry","") or "")[:100],
+            str(rows_dict.get(ticker, {}).get("company", ticker))[:200],
+            str(rows_dict.get(ticker, {}).get("sector",  "") or "")[:100],
+            str(rows_dict.get(ticker, {}).get("industry","") or "")[:100],
+            str(rows_dict.get(ticker, {}).get("country", "") or "")[:50],
+            str(rows_dict.get(ticker, {}).get("exchange", "") or "")[:50],
+            True,
         )
         for ticker in tickers
     ]
     pg_extras.execute_values(cur, """
-        INSERT INTO companies (ticker, company_name, sector, industry, active)
+        INSERT INTO companies (ticker, company_name, sector, industry, country, exchange, active)
         VALUES %s
         ON CONFLICT (ticker) DO UPDATE SET
             company_name = EXCLUDED.company_name,
-            sector       = EXCLUDED.sector,
-            industry     = EXCLUDED.industry,
+            sector       = COALESCE(NULLIF(EXCLUDED.sector,   ''), companies.sector),
+            industry     = COALESCE(NULLIF(EXCLUDED.industry, ''), companies.industry),
+            country      = COALESCE(NULLIF(EXCLUDED.country,  ''), companies.country),
+            exchange     = COALESCE(NULLIF(EXCLUDED.exchange, ''), companies.exchange),
             active       = TRUE,
             updated_at   = NOW()
     """, batch, page_size=100)
-
-    # Fetch all IDs in one query
     cur.execute("SELECT ticker, id FROM companies WHERE ticker = ANY(%s)", (tickers,))
     return {r[0]: str(r[1]) for r in cur.fetchall()}
 
 
-def _upsert_market_data(company_id: str, ticker: str,
-                         row: pd.Series, data_date: str, cur) -> None:
-    """Upsert one row into company_market_data."""
-    def g(field):
-        return _safe(row.get(field))
-
-    # Screener stores percentages as plain numbers (e.g. 12.5 = 12.5%)
-    # company_market_data expects the same format — no conversion needed
-
-    # Compute next_earnings_date if available (not in screener, leave NULL)
-    cur.execute("""
-    INSERT INTO company_market_data (
-        company_id, ticker, data_date,
-        current_price, market_cap,
-        roic_trailing, gross_margin_trailing,
-        fcf_yield_current, fcf_yield_forward,
-        revenue_3y_cagr_trailing, net_debt_ebitda,
-        fwd_revenue_3y_cagr, fwd_eps_3y_cagr,
-        earnings_momentum_roc, multiple_roc,
-        pe_forward, short_interest_pct
-    ) VALUES (
-        %s, %s, %s,
-        %s, %s,
-        %s, %s,
-        %s, %s,
-        %s, %s,
-        %s, %s,
-        %s, %s,
-        %s, %s
-    )
-    ON CONFLICT (company_id, data_date) DO UPDATE SET
-        current_price              = EXCLUDED.current_price,
-        market_cap                 = EXCLUDED.market_cap,
-        roic_trailing              = EXCLUDED.roic_trailing,
-        gross_margin_trailing      = EXCLUDED.gross_margin_trailing,
-        fcf_yield_current          = EXCLUDED.fcf_yield_current,
-        fcf_yield_forward          = EXCLUDED.fcf_yield_forward,
-        revenue_3y_cagr_trailing   = EXCLUDED.revenue_3y_cagr_trailing,
-        net_debt_ebitda            = EXCLUDED.net_debt_ebitda,
-        fwd_revenue_3y_cagr        = EXCLUDED.fwd_revenue_3y_cagr,
-        fwd_eps_3y_cagr            = EXCLUDED.fwd_eps_3y_cagr,
-        earnings_momentum_roc      = EXCLUDED.earnings_momentum_roc,
-        multiple_roc               = EXCLUDED.multiple_roc,
-        pe_forward                 = EXCLUDED.pe_forward
-    """, (
-        company_id, ticker, data_date,
-        g("stock_price"),    g("market_cap"),
-        g("roic"),           g("op_margin"),
-        g("fcf_yield"),      g("fwd_fcf_yield"),
-        g("rev_3y_cagr"),    g("net_debt_ebitda"),
-        g("fwd_rev_cagr"),   g("fwd_eps_cagr"),
-        g("earnings_mom_roc"), g("multiple_roc"),
-        g("peg"),            g("short_interest_pct") if "short_interest_pct" in row.index else None,
-    ))
-
-
-def _gate_status(row: pd.Series) -> str:
+def _gate_status(row) -> str:
     gates_pass = _safe(row.get("gates_pass"))
     if gates_pass is None:
         return "UNSCREENED"
-    n = int(gates_pass)
-    return {5:"PASS", 4:"WATCH_1", 3:"WATCH_2"}.get(n, "FAIL")
+    return {5: "PASS", 4: "WATCH_1", 3: "WATCH_2"}.get(int(gates_pass), "FAIL")
 
-
-# ── Main entry point ──────────────────────────────────────────────────────────
 
 def sync_universe_to_supabase(df: pd.DataFrame, data_date: str) -> None:
     """
-    Sync the full enriched screener DataFrame to Supabase.
-    Uses batch operations (executemany) — 3 SQL round-trips regardless of universe size.
-    Non-fatal — catches all exceptions and logs without crashing the refresh.
+    Full bidirectional sync:
+      1. Ensure all IC columns exist in Supabase (ALTER TABLE idempotent)
+      2. Upsert companies (name, sector, quad, gates, alignment, pod, etc.)
+      3. Upsert company_market_data (all screener + IC pipeline fields)
     """
     if df.empty:
         return
@@ -178,95 +227,123 @@ def sync_universe_to_supabase(df: pd.DataFrame, data_date: str) -> None:
     try:
         conn = psycopg2.connect(settings.DATABASE_URL)
         conn.autocommit = False
-        cur  = conn.cursor()
+        cur = conn.cursor()
 
         tickers   = df["ticker"].tolist()
         rows_dict = df.set_index("ticker").to_dict("index")
 
-        print(f"[Supabase] Syncing {len(tickers)} companies → Supabase...", end=" ", flush=True)
+        print(f"[Supabase] Syncing {len(tickers)} companies...", end=" ", flush=True)
 
-        # ── Step 1: batch upsert companies (1 round-trip) ─────────────────────
+        # 1. Ensure schema is up to date
+        _ensure_columns(cur)
+
+        # 2. Upsert companies
         id_map = _get_or_create_companies(tickers, rows_dict, cur)
 
-        # ── Step 2: bulk upsert market data (single SQL statement) ───────────
-        md_rows = []
-        quad_rows = []
-        df_indexed = df.set_index("ticker")
+        # 3. Update companies with IC signals (quad, gates, alignment, pod)
+        co_rows = []
+        df_idx = df.set_index("ticker")
         for ticker in tickers:
             cid = id_map.get(ticker)
             if not cid:
                 continue
-            row = df_indexed.loc[ticker] if ticker in df_indexed.index else None
-            if row is None:
-                continue
-            def g(f): return _safe(row.get(f))
-            md_rows.append((
-                cid, ticker, data_date,
-                g("stock_price"), g("market_cap"),
-                g("roic"),        g("op_margin"),
-                g("fcf_yield"),   g("fwd_fcf_yield"),
-                g("rev_3y_cagr"), g("net_debt_ebitda"),
-                g("fwd_rev_cagr"),g("fwd_eps_cagr"),
-                g("earnings_mom_roc"), g("multiple_roc"),
-                g("peg"),
-            ))
-            quad = str(row.get("quadrant","NA") or "NA")
-            quad_rows.append((
-                quad if quad not in ("N/A","NA") else None,
+            row = df_idx.loc[ticker] if ticker in df_idx.index else {}
+            quad = str(row.get("quadrant", "") or "")
+            co_rows.append((
+                quad if quad not in ("N/A", "NA", "") else None,
                 _gate_status(row),
+                _safe(row.get("alignment_score")),
+                _safe(row.get("ev_rank")),
+                _safe(row.get("flip_score")),
+                str(row.get("pead_flag") or "")[:50] or None,
+                str(row.get("pod") or "")[:50] or None,
+                _safe(row.get("pod_count")),
                 cid,
             ))
 
-        # execute_values sends ONE SQL statement with all rows — true batch
-        pg_extras.execute_values(cur, """
-            INSERT INTO company_market_data (
-                company_id, ticker, data_date,
-                current_price, market_cap,
-                roic_trailing, gross_margin_trailing,
-                fcf_yield_current, fcf_yield_forward,
-                revenue_3y_cagr_trailing, net_debt_ebitda,
-                fwd_revenue_3y_cagr, fwd_eps_3y_cagr,
-                earnings_momentum_roc, multiple_roc, pe_forward
-            ) VALUES %s
-            ON CONFLICT (company_id, data_date) DO UPDATE SET
-                current_price            = EXCLUDED.current_price,
-                market_cap               = EXCLUDED.market_cap,
-                roic_trailing            = EXCLUDED.roic_trailing,
-                gross_margin_trailing    = EXCLUDED.gross_margin_trailing,
-                fcf_yield_current        = EXCLUDED.fcf_yield_current,
-                fcf_yield_forward        = EXCLUDED.fcf_yield_forward,
-                revenue_3y_cagr_trailing = EXCLUDED.revenue_3y_cagr_trailing,
-                net_debt_ebitda          = EXCLUDED.net_debt_ebitda,
-                fwd_revenue_3y_cagr      = EXCLUDED.fwd_revenue_3y_cagr,
-                fwd_eps_3y_cagr          = EXCLUDED.fwd_eps_3y_cagr,
-                earnings_momentum_roc    = EXCLUDED.earnings_momentum_roc,
-                multiple_roc             = EXCLUDED.multiple_roc,
-                pe_forward               = EXCLUDED.pe_forward
-        """, md_rows, page_size=100)
-
-        # ── Step 3: bulk update quad + gate via single UPDATE...FROM (VALUES) ─
-        # Build a single UPDATE with a VALUES subquery — one round-trip
-        if quad_rows:
+        if co_rows:
             values_sql = ",".join(
-                cur.mogrify("(%s,%s,%s::uuid)", r).decode() for r in quad_rows
+                cur.mogrify("(%s,%s,%s,%s,%s,%s,%s,%s,%s::uuid)", r).decode()
+                for r in co_rows
             )
             cur.execute(f"""
                 UPDATE companies AS c SET
                     quad_current           = v.quad,
                     five_gate_status       = v.gate,
                     five_gate_last_checked = CURRENT_DATE,
+                    alignment_score        = v.alignment_score::numeric,
+                    ev_rank                = v.ev_rank::numeric,
+                    flip_score             = v.flip_score::numeric,
+                    pead_flag              = v.pead_flag,
+                    pod                    = v.pod,
+                    pod_count              = v.pod_count::integer,
                     updated_at             = NOW()
-                FROM (VALUES {values_sql}) AS v(quad, gate, id)
+                FROM (VALUES {values_sql})
+                    AS v(quad, gate, alignment_score, ev_rank, flip_score,
+                         pead_flag, pod, pod_count, id)
                 WHERE c.id = v.id
             """)
+
+        # 4. Upsert full market data row per company per date
+        # Build dynamic column list from IC_PIPELINE_FIELDS
+        base_cols = [
+            "company_id", "ticker", "data_date",
+            "current_price", "market_cap",
+            "roic_trailing", "gross_margin_trailing",
+            "fcf_yield_current", "fcf_yield_forward",
+            "revenue_3y_cagr_trailing", "net_debt_ebitda",
+            "fwd_revenue_3y_cagr", "fwd_eps_3y_cagr",
+        ]
+        ic_sb_cols = [sb for _, sb, _ in IC_PIPELINE_FIELDS]
+        all_cols = base_cols + ic_sb_cols
+
+        update_pairs = ", ".join(
+            f"{c} = EXCLUDED.{c}"
+            for c in all_cols
+            if c not in ("company_id", "ticker", "data_date")
+        )
+
+        md_rows = []
+        for ticker in tickers:
+            cid = id_map.get(ticker)
+            if not cid:
+                continue
+            row = df_idx.loc[ticker] if ticker in df_idx.index else {}
+
+            base_vals = [
+                cid, ticker, data_date,
+                _safe(row.get("stock_price")),  _safe(row.get("market_cap")),
+                _safe(row.get("roic")),          _safe(row.get("op_margin")),
+                _safe(row.get("fcf_yield")),     _safe(row.get("fwd_fcf_yield")),
+                _safe(row.get("rev_3y_cagr")),   _safe(row.get("net_debt_ebitda")),
+                _safe(row.get("fwd_rev_cagr")),  _safe(row.get("fwd_eps_cagr")),
+            ]
+            ic_vals = []
+            for local_col, _, pg_type in IC_PIPELINE_FIELDS:
+                v = row.get(local_col)
+                if pg_type == "BOOLEAN":
+                    ic_vals.append(_safe_bool(v))
+                else:
+                    ic_vals.append(_safe(v) if pg_type == "NUMERIC" or pg_type == "INTEGER"
+                                   else (str(v)[:255] if v is not None else None))
+            md_rows.append(tuple(base_vals + ic_vals))
+
+        col_placeholders = ", ".join(["%s"] * len(all_cols))
+        insert_sql = f"""
+            INSERT INTO company_market_data ({", ".join(all_cols)})
+            VALUES ({col_placeholders})
+            ON CONFLICT (company_id, data_date) DO UPDATE SET {update_pairs}
+        """
+        pg_extras.execute_batch(cur, insert_sql, md_rows, page_size=50)
 
         conn.commit()
         cur.close()
         conn.close()
-        print(f"✅ {len(tickers)} companies · {len(md_rows)} market rows · {data_date}")
+        print(f"OK  {len(tickers)} companies · {len(md_rows)} market rows · {data_date}")
 
     except Exception as e:
         print(f"\n[Supabase] Sync failed (non-fatal): {e}")
+        import traceback; traceback.print_exc()
         try:
             conn.rollback()
             conn.close()
@@ -274,3 +351,137 @@ def sync_universe_to_supabase(df: pd.DataFrame, data_date: str) -> None:
             pass
 
 
+def pull_enriched_to_local(data_date: str | None = None) -> int:
+    """
+    Pull Supabase-only fields (QGS, GER, yfinance enrichments) back into
+    the local SQLite universe table.  Returns number of rows updated.
+    """
+    from engines.database import get_conn as local_conn, init_db
+    import sqlite3
+
+    try:
+        sb_conn = psycopg2.connect(settings.DATABASE_URL)
+        sb_cur  = sb_conn.cursor()
+
+        # Each field group pulls from the latest row where that group is populated.
+        # Today's screener push writes nulls for yfinance/QGS fields — we must reach
+        # back to the last enrichment date for those.
+
+        qgs_fields = ["quality_growth_score", "growth_efficiency_ratio", "qgs_tier",
+                      "ger_flag", "fcf_ev_yield", "sbc_pct_revenue",
+                      "shares_out_growth_3y_cagr", "enterprise_value", "fcf_margin_trailing",
+                      "sbc_dollar", "roic_spread", "fcf_conversion"]
+
+        yf_fields  = ["momentum_3m", "momentum_6m", "momentum_12m",
+                      "rsi_14", "atr_14", "short_interest_pct", "institutional_own_pct",
+                      "sma_50", "sma_200", "analyst_count", "pe_forward", "ev_ebitda"]
+
+        # anything not in qgs or yf buckets
+        rest_fields = [f for f in PULL_BACK_FIELDS
+                       if f not in qgs_fields and f not in yf_fields]
+
+        def _query_latest_nonnull(cur, fields, anchor):
+            """Pull latest row per ticker where `anchor` field is not null."""
+            cur.execute(f"""
+                SELECT DISTINCT ON (ticker)
+                    ticker, {", ".join(fields)}
+                FROM company_market_data
+                WHERE {anchor} IS NOT NULL
+                ORDER BY ticker, data_date DESC
+            """)
+            rows = cur.fetchall()
+            cols = ["ticker"] + fields
+            return pd.DataFrame(rows, columns=cols) if rows else pd.DataFrame(columns=cols)
+
+        df_qgs = _query_latest_nonnull(sb_cur, qgs_fields, "quality_growth_score")
+        df_yf  = _query_latest_nonnull(sb_cur, yf_fields,  "rsi_14")
+
+        # Ticker spine: every ticker that has ever appeared in company_market_data
+        sb_cur.execute("SELECT DISTINCT ticker FROM company_market_data ORDER BY ticker")
+        tickers = [r[0] for r in sb_cur.fetchall()]
+        df_pull = pd.DataFrame({"ticker": tickers})
+
+        if not df_qgs.empty:
+            df_pull = df_pull.merge(df_qgs, on="ticker", how="left")
+        if not df_yf.empty:
+            df_pull = df_pull.merge(df_yf, on="ticker", how="left")
+
+        # Fill any PULL_BACK_FIELDS columns that didn't come through
+        for f in PULL_BACK_FIELDS:
+            if f not in df_pull.columns:
+                df_pull[f] = None
+
+        sb_conn.close()
+
+        if df_pull.empty:
+            print("[Supabase] pull_enriched: no rows returned")
+            return 0
+
+        # Ensure local DB has these columns
+        lconn = local_conn()
+        lcur  = lconn.cursor()
+        lcur.execute("PRAGMA table_info(universe)")
+        existing_local = {r[1] for r in lcur.fetchall()}
+
+        type_map = {
+            "quality_growth_score":     "REAL",
+            "growth_efficiency_ratio":  "REAL",
+            "qgs_tier":                 "TEXT",
+            "ger_flag":                 "TEXT",
+            "fcf_ev_yield":             "REAL",
+            "sbc_pct_revenue":          "REAL",
+            "shares_out_growth_3y_cagr":"REAL",
+            "enterprise_value":         "REAL",
+            "fcf_margin_trailing":      "REAL",
+            "momentum_3m":              "REAL",
+            "momentum_6m":              "REAL",
+            "momentum_12m":             "REAL",
+            "rsi_14":                   "REAL",
+            "atr_14":                   "REAL",
+            "short_interest_pct":       "REAL",
+            "institutional_own_pct":    "REAL",
+            "sma_50":                   "REAL",
+            "sma_200":                  "REAL",
+            "analyst_count":            "INTEGER",
+            "pe_forward":               "REAL",
+            "ev_ebitda":                "REAL",
+            "sbc_dollar":               "REAL",
+            "roic_spread":              "REAL",
+            "fcf_conversion":           "REAL",
+        }
+        for col in PULL_BACK_FIELDS:
+            if col not in existing_local:
+                lcur.execute(f"ALTER TABLE universe ADD COLUMN {col} {type_map.get(col, 'TEXT')}")
+
+        def _to_sqlite(v):
+            """Coerce Postgres Decimal / Numeric to Python native for SQLite."""
+            if v is None:
+                return None
+            import decimal
+            if isinstance(v, decimal.Decimal):
+                f = float(v)
+                return None if (math.isnan(f) or math.isinf(f)) else f
+            if isinstance(v, float) and (math.isnan(v) or math.isinf(v)):
+                return None
+            return v
+
+        # Update each ticker
+        updated = 0
+        set_clause = ", ".join(f"{c} = ?" for c in PULL_BACK_FIELDS)
+        for _, row in df_pull.iterrows():
+            vals = [_to_sqlite(row[c]) for c in PULL_BACK_FIELDS] + [row["ticker"]]
+            lcur.execute(
+                f"UPDATE universe SET {set_clause} WHERE ticker = ?",
+                vals,
+            )
+            updated += lcur.rowcount
+
+        lconn.commit()
+        lconn.close()
+        print(f"[Supabase] pull_enriched: updated {updated} local rows with enriched fields")
+        return updated
+
+    except Exception as e:
+        print(f"[Supabase] pull_enriched failed (non-fatal): {e}")
+        import traceback; traceback.print_exc()
+        return 0

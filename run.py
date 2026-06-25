@@ -114,6 +114,27 @@ def cmd_refresh():
         previous = None
 
     df_raw = load_csv(latest)
+
+    # V12: pull QGS (and fcf_ev_yield) from Supabase so Alignment FV = QGS percentile.
+    # data_updater computes QGS into company_market_data; merge the latest per ticker.
+    try:
+        import psycopg2
+        from config.settings import settings
+        pg = psycopg2.connect(settings.DATABASE_URL)
+        qgs_df = pd.read_sql("""
+            SELECT DISTINCT ON (ticker) ticker, quality_growth_score, fcf_ev_yield
+            FROM company_market_data
+            WHERE quality_growth_score IS NOT NULL
+            ORDER BY ticker, data_date DESC
+        """, pg)
+        pg.close()
+        if not qgs_df.empty:
+            qgs_df["ticker"] = qgs_df["ticker"].str.upper()
+            df_raw = df_raw.merge(qgs_df, on="ticker", how="left")
+            print(f"[Refresh] Merged QGS for {qgs_df['quality_growth_score'].notna().sum()} names (Alignment FV = QGS pct)")
+    except Exception as e:
+        print(f"[Refresh] QGS merge skipped (FV falls back to axis rank): {e}")
+
     df = run_full_pipeline(df_raw, previous)
 
     # Detect and log migrations

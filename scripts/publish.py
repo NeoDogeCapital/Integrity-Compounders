@@ -102,7 +102,7 @@ def _write_index():
   <div class="sub">Concentrated Quality-Compounder Strategy · Integrity Wealth Partners · LPL Financial Affiliate</div>
 </div>
 <div class="body">
-  <div class="badge">Alpha System v11.0</div>
+  <div class="badge">Alpha System v12</div>
   <p style="font-size:14px;color:#8b949e;line-height:1.6">
     Internal dashboards for the Integrity Compounders concentrated equity strategy.
     3-Pillar Scoring · Quad Framework · Factor Exposure Analytics.
@@ -124,7 +124,7 @@ def _write_index():
 def git_push(message: str = None) -> bool:
     """Stage, commit, and push to GitHub."""
     if message is None:
-        message = f"IC OS v11 — dashboard update {datetime.today().strftime('%Y-%m-%d %H:%M')}"
+        message = f"IC OS v12 — dashboard update {datetime.today().strftime('%Y-%m-%d %H:%M')}"
 
     # Check git is initialised
     rc, _ = run("git rev-parse --git-dir")
@@ -135,7 +135,7 @@ def git_push(message: str = None) -> bool:
     steps = [
         ("git add docs/ outputs/", "Stage docs and outputs"),
         (f'git commit -m "{message} [skip ci]"', "Commit"),
-        ("git push -u origin main", "Push to origin/main"),
+        ("git push origin HEAD:main", "Push to origin/main"),
     ]
     for cmd, label in steps:
         rc, out = run(cmd)
