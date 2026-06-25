@@ -1,36 +1,46 @@
 """
-alignment.py — Compounders Alignment Score (3-Signal, v10.0)
-Integrity Compounders Alpha System v10.0
+alignment.py — Self-Computed Alignment Score (V12)
+Integrity Compounders Alpha System V12
 
-Signal weights (sum to 1.0):
-  Fundamental Velocity (FV):          50%  — Combined X-axis (Rev Momentum) +
-                                              Y-axis (EPS Momentum); avg of both
-                                              rank-normalized signals. Both must be
-                                              positive for a high FV rank.
-  Market Conviction (MC):             25%  — Blended price momentum (TR 1M + YTD)
-  Earnings Surprise Velocity (ESV):   25%  — Avg(Rev Surprise Q, EPS Surprise Q)
+V12 (Issues 4, 5, 6): the three component ranks are no longer pre-computed
+black-box values from Fiscal AI. They are self-computed from transparent,
+reproducible inputs and owned by us.
 
-Valuation Confirmation (VC) removed. FCF Yield Spread is now a standalone
-valuation overlay in quad.py (compute_fcf_spread), not a signal input.
+  FV Rank  (40%) — QGS percentile within universe (quality-growth-valuation).
+                   QGS already folds in growth, FCF/EV valuation, ROIC, FCF margin.
+  MC Rank  (25%) — weighted price-momentum percentile (momentum confirmation):
+                     1M x15% + 3M x25% + 6M x30% + 12M x30%
+  ESV Rank (35%) — earnings-surprise composite (absorbs the old standalone PEAD):
+                     beat rate x35% + rev surprise x25% + eps surprise x25%
+                     + PEAD drift proxy x15%
 
-Each signal rank-normalized 0-100 across universe before weighting.
-Missing ESV -> assigned 50.0 (universe median) to avoid penalizing missing data.
+Alignment = FV x0.40 + MC x0.25 + ESV x0.35   (each rank 0-100)
 
 Buckets:
-  Accumulate  >= 65
-  Neutral     35-65
-  Distribute  < 35
+  ACCUMULATE  >= 65
+  HOLD        35-64
+  DISTRIBUTE  < 35
+
+Falls back gracefully when enriched columns (QGS, momentum_*) are absent.
 """
 
 import pandas as pd
 import numpy as np
 
-# -- Weights (must sum to 1.0) -------------------------------------------------
+# -- Top-level component weights (must sum to 1.0) -----------------------------
 WEIGHTS = {
-    "fv":  0.50,   # Fundamental Velocity (combined X + Y axes)
-    "mc":  0.25,   # Market Conviction
-    "esv": 0.25,   # Earnings Surprise Velocity
+    "fv":  0.40,   # Fundamental Velocity = QGS percentile
+    "mc":  0.25,   # Market Conviction = weighted momentum percentile
+    "esv": 0.35,   # Earnings Surprise Velocity composite
 }
+
+# -- MC sub-weights (weighted momentum percentile) -----------------------------
+MC_WEIGHTS = {"momentum_1m": 0.15, "momentum_3m": 0.25,
+              "momentum_6m": 0.30, "momentum_12m": 0.30}
+
+# -- ESV sub-weights -----------------------------------------------------------
+ESV_WEIGHTS = {"beat_rate": 0.35, "rev_surprise": 0.25,
+               "eps_surprise": 0.25, "pead_drift": 0.15}
 
 ACCUMULATE_THRESH = 65
 DISTRIBUTE_THRESH = 35
@@ -56,65 +66,126 @@ def _rank_normalize(series: pd.Series) -> pd.Series:
     return ranked
 
 
+def _weighted_momentum(df: pd.DataFrame) -> pd.Series:
+    """Weighted composite of available momentum columns (1M/3M/6M/12M).
+    Falls back to (tr_1m, ytd_perf) blend if no momentum_* columns are present."""
+    avail = {c: w for c, w in MC_WEIGHTS.items() if c in df.columns}
+    if avail:
+        wsum = sum(avail.values())
+        comp = pd.Series(0.0, index=df.index)
+        weight_present = pd.Series(0.0, index=df.index)
+        for c, w in avail.items():
+            s = pd.to_numeric(df[c], errors="coerce")
+            comp = comp.add(s.fillna(0) * w, fill_value=0)
+            weight_present = weight_present.add(s.notna().astype(float) * w, fill_value=0)
+        # normalize by present weight so partially-missing names aren't deflated
+        comp = comp / weight_present.replace(0, np.nan)
+        return comp
+    # Fallback: legacy price momentum
+    cols = [c for c in ("tr_1m", "ytd_perf") if c in df.columns]
+    return df[cols].mean(axis=1) if cols else pd.Series(np.nan, index=df.index)
+
+
 def compute_esv(df: pd.DataFrame) -> pd.DataFrame:
     """
-    Earnings Surprise Velocity = average of Rev Surprise Q and EPS Surprise Q.
-    If one is missing, use the available one.
-    If both missing, mark as NaN (will be assigned median rank).
+    V12 Earnings Surprise Velocity composite (absorbs standalone PEAD).
+      beat rate     35% — share of rev/eps surprises that are positive
+      rev surprise  25% — rank of revenue surprise magnitude
+      eps surprise  25% — rank of EPS surprise magnitude
+      PEAD drift    15% — rank of post-earnings price drift proxy (momentum_1m / tr_1m)
+    Returns df with an 'esv' composite column (0-1 scale before rank-normalize).
     """
     df = df.copy()
-    df["esv"] = df[["rev_surprise_q", "eps_surprise_q"]].mean(axis=1)
+    rev = pd.to_numeric(df.get("rev_surprise_q"), errors="coerce") if "rev_surprise_q" in df.columns else pd.Series(np.nan, index=df.index)
+    eps = pd.to_numeric(df.get("eps_surprise_q"), errors="coerce") if "eps_surprise_q" in df.columns else pd.Series(np.nan, index=df.index)
+
+    beat = ((rev > 0).astype(float) + (eps > 0).astype(float)) / 2.0
+
+    rev_pct = _rank_normalize(rev) / 100.0
+    eps_pct = _rank_normalize(eps) / 100.0
+
+    # PEAD drift proxy: most-recent-month drift after the print
+    if "momentum_1m" in df.columns:
+        drift = pd.to_numeric(df["momentum_1m"], errors="coerce")
+    elif "tr_1m" in df.columns:
+        drift = pd.to_numeric(df["tr_1m"], errors="coerce")
+    else:
+        drift = pd.Series(np.nan, index=df.index)
+    drift_pct = _rank_normalize(drift) / 100.0
+
+    df["esv"] = (
+        ESV_WEIGHTS["beat_rate"]    * beat +
+        ESV_WEIGHTS["rev_surprise"] * rev_pct +
+        ESV_WEIGHTS["eps_surprise"] * eps_pct +
+        ESV_WEIGHTS["pead_drift"]   * drift_pct
+    )
     return df
 
 
 def compute_alignment(df: pd.DataFrame) -> pd.DataFrame:
     """
-    Compute the 3-signal Compounders Alignment Score (v10.0).
-    Requires: earnings_mom_roc (X = Rev Momentum), multiple_roc (Y = EPS Momentum),
-              tr_1m, ytd_perf, rev_surprise_q, eps_surprise_q
+    V12 self-computed Alignment Score.
+      FV  = QGS percentile (fallback: X/Y axis rank average)
+      MC  = weighted momentum percentile
+      ESV = earnings-surprise composite percentile
+    Alignment = FV x0.40 + MC x0.25 + ESV x0.35
     """
     df = df.copy()
 
-    # ESV
+    # ── FV: QGS percentile ────────────────────────────────────────────────
+    if "quality_growth_score" in df.columns and df["quality_growth_score"].notna().any():
+        df["fv_rank"] = _rank_normalize(pd.to_numeric(df["quality_growth_score"], errors="coerce"))
+        df["fv_source"] = "qgs"
+    else:
+        # Fallback to V11 fundamental velocity (X/Y axis rank average)
+        x_rank = _rank_normalize(df.get("earnings_mom_roc"))
+        y_rank = _rank_normalize(df.get("multiple_roc"))
+        df["fv_rank"] = (x_rank + y_rank) / 2
+        df["fv_source"] = "axis_fallback"
+
+    # ── MC: weighted momentum percentile ─────────────────────────────────
+    df["price_mom"] = _weighted_momentum(df)
+    df["mc_rank"]   = _rank_normalize(df["price_mom"])
+
+    # ── ESV: earnings-surprise composite percentile ──────────────────────
     df = compute_esv(df)
-
-    # Market Conviction: blended 1M + YTD price momentum
-    df["price_mom"] = df[["tr_1m", "ytd_perf"]].mean(axis=1)
-
-    # FV = average of rank-normalized X-axis and Y-axis
-    # Both X (revenue momentum) and Y (earnings momentum) must be high for a high FV rank
-    x_rank = _rank_normalize(df["earnings_mom_roc"])
-    y_rank = _rank_normalize(df["multiple_roc"])
-    df["fv_rank"]  = (x_rank + y_rank) / 2
-
-    df["mc_rank"]  = _rank_normalize(df["price_mom"])
     df["esv_rank"] = _rank_normalize(df["esv"])
 
-    # Weighted alignment score (3 signals, no VC)
+    # ── Weighted alignment score ─────────────────────────────────────────
     df["alignment_score"] = (
         WEIGHTS["fv"]  * df["fv_rank"]  +
         WEIGHTS["mc"]  * df["mc_rank"]  +
         WEIGHTS["esv"] * df["esv_rank"]
     ).round(2)
 
-    # Bucket assignment
     def _bucket(score):
         if pd.isna(score):
-            return "Neutral"
+            return "HOLD"
         if score >= ACCUMULATE_THRESH:
-            return "Accumulate"
+            return "ACCUMULATE"
         if score < DISTRIBUTE_THRESH:
-            return "Distribute"
-        return "Neutral"
+            return "DISTRIBUTE"
+        return "HOLD"
 
     df["alignment_bucket"] = df["alignment_score"].apply(_bucket)
     df["alignment_rank"]   = df["alignment_score"].rank(ascending=False, method="min").astype(int)
 
-    # Convergence count (how many of the 3 signals are positive)
-    df["convergence_count"] = df.apply(_convergence_count, axis=1)
+    # V12 canonical aliases (dashboards read *_v2)
+    df["alignment_score_v2"]  = df["alignment_score"]
+    df["alignment_bucket_v2"] = df["alignment_bucket"]
+    df["fv_rank_v2"]  = df["fv_rank"]
+    df["mc_rank_v2"]  = df["mc_rank"]
+    df["esv_rank_v2"] = df["esv_rank"]
+
+    # Convergence count (FV, MC, ESV all above median)
+    df["convergence_count"] = (
+        (df["fv_rank"] >= 50).astype(int) +
+        (df["mc_rank"] >= 50).astype(int) +
+        (df["esv_rank"] >= 50).astype(int)
+    )
     df["convergence_label"] = df["convergence_count"].map(CONVERGENCE_LABELS)
 
-    # PEAD Flag
+    # PEAD now lives inside ESV; retain a derived flag for back-compat displays
     df["pead_flag"] = df.apply(_pead_flag, axis=1)
 
     return df
@@ -131,30 +202,24 @@ def _convergence_count(row: pd.Series) -> int:
 
 def _pead_flag(row: pd.Series) -> str:
     """
-    Classify Post-Earnings Announcement Drift setup.
-    3 signals: FV (both X and Y positive), MC (price mom positive), ESV (surprise positive)
-
-    Strong PEAD:  all 3 positive + ESV >= 3%
-    PEAD Confirm: 2 of 3 positive + ESV >= 0
-    PEAD Warn:    2 of 3 positive but ESV < -3%
-    Reverse PEAD: most signals weak but ESV >= 3%
+    V12: PEAD is absorbed into ESV Rank. This derived label is a back-compat
+    display only, read off the ESV percentile and momentum confirmation.
+      Strong PEAD  — ESV rank >= 80 and momentum confirming (mc_rank >= 50)
+      PEAD Confirm — ESV rank >= 65
+      PEAD Warn    — ESV rank >= 65 but momentum diverging (mc_rank < 35)
+      Reverse PEAD — ESV rank <= 20
     """
-    fv_pos     = (row.get("earnings_mom_roc", 0) or 0) > 0 and (row.get("multiple_roc", 0) or 0) > 0
-    mc_pos     = (row.get("price_mom", 0) or 0) > 0
-    esv_val    = row.get("esv", np.nan)
-    esv_pos    = not pd.isna(esv_val) and esv_val > 0
-    esv_strong = not pd.isna(esv_val) and esv_val >= 0.03
-    esv_weak   = not pd.isna(esv_val) and esv_val <= -0.03
-
-    pos_count = sum([fv_pos, mc_pos, esv_pos])
-
-    if pos_count == 3 and esv_strong:
+    esv_r = row.get("esv_rank", np.nan)
+    mc_r  = row.get("mc_rank", np.nan)
+    if pd.isna(esv_r):
+        return "—"
+    if esv_r >= 80 and (not pd.isna(mc_r) and mc_r >= 50):
         return "Strong PEAD"
-    if pos_count >= 2 and esv_pos and not esv_weak:
-        return "PEAD Confirm"
-    if pos_count >= 2 and esv_weak:
+    if esv_r >= 65 and (not pd.isna(mc_r) and mc_r < 35):
         return "PEAD Warn"
-    if pos_count <= 1 and esv_strong:
+    if esv_r >= 65:
+        return "PEAD Confirm"
+    if esv_r <= 20:
         return "Reverse PEAD"
     return "—"
 

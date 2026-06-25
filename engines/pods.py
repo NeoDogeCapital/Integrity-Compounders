@@ -1,9 +1,13 @@
 """
-pods.py — Business-Model Pod Waterfall
-Integrity Compounders Alpha System v9.1
+pods.py — Business-Model Pod Waterfall  [DEPRECATED IN V12]
+
+⚠️  RETIRED in Methodology V12 (Issue 9). POD (Point of Differentiation) is no
+longer part of the pipeline — it is replaced by the diagnostic quality_profile
+(engines/screener.py) plus the six-factor exposure model. This module is kept
+only so historical scripts that import it do not crash; it is not called by
+run.py's pipeline. Do not add new dependencies on it.
 
 Deterministic waterfall: first-match wins, evaluated in priority order.
-Pod thresholds are defined in POD_RULES and match CLAUDE.md §6.
 """
 
 import pandas as pd

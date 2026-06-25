@@ -3,11 +3,30 @@ Concentrated equity portfolio · Integrity Wealth Partners · LPL Financial Affi
 GitHub: https://github.com/NeoDogeCapital/Integrity-Compounders
 Dashboard: https://NeoDogeCapital.github.io/Integrity-Compounders/
 
-## Master Rulebook · v11.0 · June 2026
+## Master Rulebook · Compounders v12 · June 2026
 > This file is read by Claude Code at the start of every session.
-> It encodes the complete methodology, data schema, computation rules, and
-> workflow commands for the Integrity Compounders Alpha System.
+> It summarizes the methodology, data schema, computation rules, and workflow
+> commands for the Integrity Compounders Alpha System.
+> **Canonical reference: [METHODOLOGY_V12.md](METHODOLOGY_V12.md)** — read it for
+> the full nine-stage pipeline, every formula, and the question each layer answers.
 > Do not edit without updating the version header above.
+
+### What changed in V12 (vs V11)
+- **Quad contamination detector:** trailing gross-profit acceleration vs EPS
+  acceleration → `earnings_quality_flag` (EPS_CONFIRMED / EPS_ENGINEERED /
+  GP_LEADING / NEUTRAL / DATA_INCOMPLETE). Feeds the pillar scorer.
+- **Quality Indicators (diagnostic, not gates):** six PASS/FAIL indicators →
+  `quality_profile` (FULL_COMPOUNDER / QUALITY_WATCH / DEVELOPING / QUALITY_CONCERN).
+  Missing data = DATA_INCOMPLETE, never a false FAIL. Margin split into pricing
+  power (gross) + operational efficiency (operating).
+- **Self-computed Alignment Score:** FV = QGS percentile (40%), MC = weighted
+  momentum percentile (25%), ESV = surprise composite incl. PEAD drift (35%).
+  No more Fiscal AI black-box ranks. Buckets ACCUMULATE ≥65 / HOLD / DISTRIBUTE <35.
+- **Pillars:** valuation REMOVED from all three (lives only in QGS + FCF/EV). P1 =
+  moat + economics (ROIC level) + reinvestment; P2 capital allocation uses ROIC
+  trajectory. Hard floors P2≥6.0, P3≥6.0 retained.
+- **FCF/EV Rank** replaces raw EV rank (size measure → cash-valuation measure).
+- **Retired:** POD, raw EV Rank, standalone PEAD flag, eliminatory "gate" language.
 
 ---
 
@@ -21,30 +40,44 @@ Dashboard: https://NeoDogeCapital.github.io/Integrity-Compounders/
 - **Quad change requires two consecutive months** before triggering portfolio action
 - **Composite score < 6.5 = not eligible for portfolio**
 
-## PILLAR FRAMEWORK (v2 — 3 pillars)
-- **P1 Business Quality (40%):** ROIC, gross margin, moat durability, FCF margin, earnings quality
-- **P2 Management Integrity (35%):** founder-led, insider ownership, capital allocation, communication
-- **P3 Financial Strength (25%):** balance sheet, FCF consistency, margin trajectory
+## PILLAR FRAMEWORK (V12 — 3 pillars, VALUATION REMOVED)
+- **P1 Business Quality (40%):** three anchors averaged — moat durability,
+  economics sustainability (ROIC **level**), reinvestment quality. No valuation.
+- **P2 Management & Capital Allocation (35%):** ROIC **trajectory**, M&A/buyback
+  discipline, SBC%, alignment & integrity, communication. **HARD FLOOR 6.0.**
+- **P3 Financial Strength (25%):** balance sheet, earnings/cash quality,
+  self-funding. **HARD FLOOR 6.0.**
 - Composite = P1×0.40 + P2×0.35 + P3×0.25
 - **TIER_1:** ≥8.0 | **TIER_2:** 6.5–7.9 | **WATCHLIST:** 5.0–6.4 | **DNQ:** <5.0
-- P4 Reinvestment and P5 Valuation **RETIRED** — Quad framework handles these signals
+- Valuation lives ONLY in QGS + FCF/EV — never inside a pillar.
+- `earnings_quality_flag` = EPS_ENGINEERED triggers extra P1/P2 scrutiny.
 
-## QUAD FRAMEWORK (unchanged)
+## QUAD FRAMEWORK (V12 — + contamination detector)
 - X = Revenue Momentum = Fwd Rev CAGR − Trailing Rev CAGR
 - Y = Earnings Momentum = Fwd EPS CAGR (capped 25%) − Trailing EPS CAGR
-- **Q1 Full Compounders** (X>0, Y>0, EV Rank 1 — Best)
-- **Q2 Earnings Resilience** (X<0, Y>0, EV Rank 2)
-- **Q3 Margin Compression** (X>0, Y<0, EV Rank 3) — AVOID
-- **Q4 Full Deterioration** (X<0, Y<0, EV Rank 4 — Worst)
-- Two consecutive months required to confirm any quad change
+- **Q1 Full Compounders** (X>0, Y>0) · **Q2 Earnings Resilience** (X>0, Y≤0)
+- **Q3 Margin Compression** (X≤0, Y≤0, watchlist) · **Q4 Reset/Avoid** (X≤0, Y>0)
+- **Contamination detector:** eps_acceleration = eps_cagr_1y − eps_cagr_3y vs
+  gp_acceleration = gp_cagr_1y − gp_cagr_3y → `earnings_quality_flag`.
+- Two consecutive months required to confirm any quad change.
+
+## SIGNAL SYNTHESIS (V12 Stage 4)
+- **QGS** = (fwd_rev + fwd_eps) × fcf_ev_yield × roic × fcf_margin
+- **GER** = (fwd_rev + fwd_eps) / max(sbc_pct + shares_out_growth, 0.01)
+- **FCF/EV Rank** = percentile of FCF/EV yield (replaces raw EV rank)
+- **Alignment** = FV(QGS pct)×0.40 + MC(weighted momentum pct)×0.25 + ESV(surprise composite)×0.35
 
 ## FACTOR EXPOSURE (monthly analytics — not a classification layer)
 - Run: `python scripts/factor_exposure.py --snapshot --html`
-- Replaces pod classification as the structural analytics layer
+- Replaces POD classification (retired in V12) as the structural analytics layer
 - Flags: `IT_SECTOR_CAP_BREACH` | `HIGH_BETA` | `LEVERAGE_ELEVATED` | `HIGH_CORRELATION` | `REVISION_MOMENTUM_WEAK` | `VALUATION_STRETCHED`
 
-## FIVE-GATE SCREEN (unchanged)
-- ROIC ≥ 12% | Gross Margin ≥ 35% | FCF Margin ≥ 10% | Rev 3Y CAGR ≥ 6% | ND/EBITDA ≤ 2.5×
+## QUALITY INDICATORS (V12 — diagnostic, NOT eliminatory)
+- Capital Efficiency ROIC ≥ 10% | Pricing Power Gross Margin ≥ 30% |
+  Operational Efficiency Op Margin ≥ 15% | Cash Conversion FCF Margin ≥ 7% |
+  Growth Durability Rev 3Y CAGR ≥ 5% | Balance Sheet ND/EBITDA ≤ 3.0×
+- Profile: 5-6 = FULL_COMPOUNDER, 3-4 = QUALITY_WATCH, 1-2 = DEVELOPING, 0 = QUALITY_CONCERN
+- Missing data = DATA_INCOMPLETE (never a false FAIL). Indicators do NOT remove names.
 
 ## DAILY WORKFLOW
 ```

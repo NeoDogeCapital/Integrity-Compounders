@@ -1,16 +1,24 @@
 """
-screener.py — Five-Gate Quality Screen
-Integrity Compounders Alpha System v9.1
+screener.py — Quality Indicators (Diagnostic) — Integrity Compounders V12
 
-Gates (all must pass):
-  1. Quality:       ROIC >= 12%
-  2. Durability:    Op Margin >= 25%   (proxy for Gross Margin; flagged)
-  3. Cash Conv:     FCF Yield >= 8%    (proxy for FCF Margin >= 10%; flagged)
-  4. Reinvestment:  Rev 3Y CAGR >= 6%
-  5. Balance Sheet: Net Debt/EBITDA <= 2.5x
+V12 change (Issues 2, 3, 8): the old "five gates" were eliminatory in name but
+non-binding in practice. They are now six DIAGNOSTIC Quality Indicators that
+describe a business but do not by themselves exclude a name. Action decisions
+come from the Alignment Score and the pillar scores.
 
-Survivorship: two consecutive monthly fails on same gate → removed.
-One fail on two different gates → removed.
+Six indicators (each PASS / FAIL / DATA_INCOMPLETE):
+  Capital Efficiency      ROIC >= 10%
+  Pricing Power           Gross Margin >= 30%      (split out from old margin test)
+  Operational Efficiency  Operating Margin >= 15%  (split out from old margin test)
+  Cash Conversion         FCF Margin >= 7%         (Fiscal AI CSV → yfinance backup)
+  Growth Durability       Revenue 3Y CAGR >= 5%
+  Balance Sheet           Net Debt/EBITDA <= 3.0x
+
+Quality Profile: 5-6 pass = FULL_COMPOUNDER, 3-4 = QUALITY_WATCH,
+                 1-2 = DEVELOPING, 0 = QUALITY_CONCERN.
+
+Missing data yields DATA_INCOMPLETE for that indicator (never a false FAIL).
+Legacy gate_* / gates_pass columns are still emitted as aliases for back-compat.
 """
 
 import pandas as pd
@@ -18,21 +26,49 @@ import numpy as np
 import json
 from datetime import datetime
 
-# ── Gate thresholds (editable here; referenced in CLAUDE.md) ─────────────────
-GATES = {
-    "quality":       ("roic",            ">=", 12.0),
-    "durability":    ("op_margin",       ">=", 25.0),   # proxy: gross margin
-    "cash_conv":     ("fcf_yield",       ">=",  3.0),   # proxy: fcf margin
-    "reinvestment":  ("rev_3y_cagr",     ">=",  6.0),
-    "balance_sheet": ("net_debt_ebitda", "<=",  2.5),
+# ── V12 Quality Indicators (thresholds in PLAIN %, matching stored data) ─────
+INDICATORS = {
+    "capital_efficiency":     ("roic",            ">=", 10.0),
+    "pricing_power":          ("gross_margin",    ">=", 30.0),
+    "operational_efficiency": ("op_margin",       ">=", 15.0),
+    "cash_conversion":        ("fcf_margin",      ">=",  7.0),
+    "growth_durability":      ("rev_3y_cagr",     ">=",  5.0),
+    "balance_sheet":          ("net_debt_ebitda", "<=",  3.0),
 }
 
-PROXY_FLAGS = {
-    "durability": "Op Margin used as proxy for Gross Margin (not in Fiscal AI export)",
-    "cash_conv":  "FCF Yield used as proxy for FCF Margin (not in Fiscal AI export)",
+# Legacy gate name → V12 indicator name (for back-compat alias columns)
+LEGACY_GATE_ALIASES = {
+    "gate_quality":        "capital_efficiency",
+    "gate_durability":     "operational_efficiency",
+    "gate_cash_conv":      "cash_conversion",
+    "gate_reinvestment":   "growth_durability",
+    "gate_balance_sheet":  "balance_sheet",
+    "gate_pricing_power":  "pricing_power",
 }
+
+# Back-compat: some callers still import GATES
+GATES = INDICATORS
+
+QUALITY_PROFILE = {
+    "FULL_COMPOUNDER":  "5-6 indicators pass",
+    "QUALITY_WATCH":    "3-4 indicators pass",
+    "DEVELOPING":       "1-2 indicators pass",
+    "QUALITY_CONCERN":  "0 indicators pass",
+}
+
+PROXY_FLAGS = {}
 
 EPS_CAGR_CAP = 25.0   # cap forward EPS CAGR at 25% (data stored as plain %, e.g. 12.5 = 12.5%)
+
+
+def _quality_profile(n_pass: int) -> str:
+    if n_pass >= 5:
+        return "FULL_COMPOUNDER"
+    if n_pass >= 3:
+        return "QUALITY_WATCH"
+    if n_pass >= 1:
+        return "DEVELOPING"
+    return "QUALITY_CONCERN"
 
 
 def _eval_gate(series: pd.Series, op: str, threshold: float) -> pd.Series:
@@ -45,10 +81,17 @@ def _eval_gate(series: pd.Series, op: str, threshold: float) -> pd.Series:
 
 def run_gates(df: pd.DataFrame) -> pd.DataFrame:
     """
-    Evaluate all five gates per name.
-    Adds columns: gate_quality, gate_durability, gate_cash_conv,
-                  gate_reinvestment, gate_balance_sheet, gates_pass,
-                  universe_status, watch_flags, fwd_eps_cagr (capped).
+    Evaluate the six V12 Quality Indicators (diagnostic, non-eliminatory).
+
+    Adds:
+      ind_<name>              1=pass, 0=fail, NaN=DATA_INCOMPLETE  (per indicator)
+      indicators_pass         count of passing indicators (0-6)
+      quality_profile         FULL_COMPOUNDER / QUALITY_WATCH / DEVELOPING / QUALITY_CONCERN
+      data_incomplete_flags   JSON list of indicators with missing data
+      watch_flags             JSON list of failing indicators
+      universe_status         always 'active' (V12: indicators are diagnostic)
+      gate_* / gates_pass     legacy aliases for back-compat
+      fwd_eps_cagr_capped     EPS cap (base-effect protection)
     """
     df = df.copy()
 
@@ -61,127 +104,104 @@ def run_gates(df: pd.DataFrame) -> pd.DataFrame:
         df["fwd_eps_cagr_capped"] = np.nan
         df["eps_cagr_was_capped"] = 0
 
-    # Evaluate each gate
-    failed_gates = {}
-    for gate_name, (field, op, thresh) in GATES.items():
-        col = f"gate_{gate_name}"
+    # Evaluate each indicator. Missing field/value → DATA_INCOMPLETE (NaN), not FAIL.
+    for name, (field, op, thresh) in INDICATORS.items():
+        col = f"ind_{name}"
         if field in df.columns:
-            result = _eval_gate(df[field].fillna(-999 if op == ">=" else 999), op, thresh)
+            series = pd.to_numeric(df[field], errors="coerce")
+            present = series.notna()
+            result = pd.Series(np.nan, index=df.index, dtype="float")
+            if op == ">=":
+                result[present] = (series[present] >= thresh).astype(float)
+            else:  # "<="
+                result[present] = (series[present] <= thresh).astype(float)
+            df[col] = result
         else:
-            result = pd.Series(0, index=df.index)
-            print(f"[Screener] WARNING: field '{field}' missing — gate '{gate_name}' defaults to FAIL")
-        df[col] = result
+            df[col] = np.nan
+            print(f"[Indicators] field '{field}' missing — '{name}' = DATA_INCOMPLETE")
 
-    gate_cols = [f"gate_{g}" for g in GATES]
-    df["gates_pass"] = df[gate_cols].sum(axis=1)
+    ind_cols = [f"ind_{n}" for n in INDICATORS]
+    df["indicators_pass"] = df[ind_cols].apply(lambda r: int((r == 1.0).sum()), axis=1)
+    df["quality_profile"] = df["indicators_pass"].apply(_quality_profile)
 
-    # Determine watch_flags (which gates failed this run)
-    def _watch_flags(row):
-        fails = [g for g in GATES if row.get(f"gate_{g}", 0) == 0]
-        return json.dumps(fails)
+    def _flags(row, kind):
+        out = []
+        for n in INDICATORS:
+            v = row.get(f"ind_{n}")
+            if kind == "fail" and v == 0.0:
+                out.append(n)
+            elif kind == "incomplete" and (v is None or (isinstance(v, float) and pd.isna(v))):
+                out.append(n)
+        return json.dumps(out)
 
-    df["watch_flags"] = df.apply(_watch_flags, axis=1)
+    df["watch_flags"]           = df.apply(lambda r: _flags(r, "fail"), axis=1)
+    df["data_incomplete_flags"] = df.apply(lambda r: _flags(r, "incomplete"), axis=1)
 
-    # Simple status assignment (without consecutive-fail history)
-    # Full consecutive tracking happens in update_universe_status()
-    def _status(row):
-        fails = json.loads(row["watch_flags"])
-        if len(fails) == 0:
-            return "active"
-        if len(fails) >= 2:
-            return "watch"  # immediate watch; consecutive logic may remove
-        return "watch"
+    # V12: indicators are diagnostic — they never remove a name from the universe.
+    df["universe_status"] = "active"
 
-    df["universe_status"] = df.apply(_status, axis=1)
+    # ── Legacy aliases (back-compat for callers expecting gate_* / gates_pass) ──
+    for legacy_col, ind_name in LEGACY_GATE_ALIASES.items():
+        src = f"ind_{ind_name}"
+        if src in df.columns:
+            df[legacy_col] = (df[src] == 1.0).astype(int)
+    df["gates_pass"] = df["indicators_pass"]
 
     return df
 
 
 def update_universe_status(current: pd.DataFrame, previous: pd.DataFrame | None) -> pd.DataFrame:
     """
-    Apply two-consecutive-fail survivorship rules by comparing current vs previous snapshot.
-    Returns current with updated universe_status ('active' | 'watch' | 'removed').
+    V12: Quality Indicators are diagnostic, not eliminatory. Names are no longer
+    removed from the universe on indicator fails. The quality_profile carries the
+    diagnostic signal; exit decisions come from Alignment + pillar scores.
+
+    Retained as a no-op (status stays 'active') for pipeline back-compat.
     """
-    if previous is None or previous.empty:
-        return current
-
     current = current.copy()
-    prev_indexed = previous.set_index("ticker") if "ticker" in previous.columns else previous
-
-    for idx, row in current.iterrows():
-        ticker = row["ticker"]
-        curr_fails = set(json.loads(row.get("watch_flags", "[]")))
-
-        if ticker not in prev_indexed.index:
-            continue  # new name — no history
-
-        prev_row = prev_indexed.loc[ticker]
-        prev_fails = set(json.loads(prev_row.get("watch_flags") or "[]"))
-
-        if not curr_fails:
-            current.at[idx, "universe_status"] = "active"
-            continue
-
-        # Two different gates failed this month
-        if len(curr_fails) >= 2:
-            current.at[idx, "universe_status"] = "removed"
-            continue
-
-        # Same single gate failed in both months → remove
-        if curr_fails == prev_fails and len(curr_fails) == 1:
-            current.at[idx, "universe_status"] = "removed"
-        else:
-            current.at[idx, "universe_status"] = "watch"
-
+    current["universe_status"] = "active"
     return current
 
 
 def screen_summary(df: pd.DataFrame) -> dict:
-    """Return a summary dict of screening results."""
-    active   = df[df["universe_status"] == "active"]
-    watch    = df[df["universe_status"] == "watch"]
-    removed  = df[df["universe_status"] == "removed"]
-    capped   = df[df.get("eps_cagr_was_capped", pd.Series(0, index=df.index)) == 1]
+    """Return a summary dict of V12 quality-indicator results."""
+    capped = df[df.get("eps_cagr_was_capped", pd.Series(0, index=df.index)) == 1]
 
-    gate_pass_rates = {}
-    for gate in GATES:
-        col = f"gate_{gate}"
+    indicator_pass_rates = {}
+    for name in INDICATORS:
+        col = f"ind_{name}"
         if col in df.columns:
-            rate = df[col].mean()
-            gate_pass_rates[gate] = round(rate, 3)
+            valid = df[col].dropna()
+            rate = valid.mean() if len(valid) else float("nan")
+            indicator_pass_rates[name] = round(rate, 3) if pd.notna(rate) else None
+
+    profile_counts = df["quality_profile"].value_counts().to_dict() if "quality_profile" in df.columns else {}
 
     summary = {
-        "total_names":      len(df),
-        "active":           len(active),
-        "watch":            len(watch),
-        "removed":          len(removed),
-        "survival_rate":    round(len(active) / max(len(df), 1), 4),
-        "eps_cagr_capped":  len(capped),
-        "gate_pass_rates":  gate_pass_rates,
-        "proxy_flags":      PROXY_FLAGS,
-        "run_timestamp":    datetime.utcnow().isoformat(),
+        "total_names":          len(df),
+        "profile_counts":       profile_counts,
+        "eps_cagr_capped":      len(capped),
+        "indicator_pass_rates": indicator_pass_rates,
+        "run_timestamp":        datetime.utcnow().isoformat(),
     }
     return summary
 
 
 def print_screen_summary(df: pd.DataFrame):
     s = screen_summary(df)
-    print("\n" + "═" * 60)
-    print("  INTEGRITY COMPOUNDERS — FIVE-GATE SCREEN RESULTS")
-    print("═" * 60)
+    print("\n" + "=" * 60)
+    print("  INTEGRITY COMPOUNDERS — QUALITY INDICATORS (V12, DIAGNOSTIC)")
+    print("=" * 60)
     print(f"  Universe scanned:   {s['total_names']:>4}")
-    print(f"  Active (all 5 pass):{s['active']:>4}  ({s['survival_rate']:.1%} survival)")
-    print(f"  Watch (1 fail):     {s['watch']:>4}")
-    print(f"  Removed (2+ fail):  {s['removed']:>4}")
-    print(f"  EPS CAGR capped:    {s['eps_cagr_capped']:>4}  (>{EPS_CAGR_CAP:.0f}% cap applied)")
-    print("\n  Gate pass rates:")
-    for gate, rate in s["gate_pass_rates"].items():
-        proxy = "  ⚑ proxy" if gate in PROXY_FLAGS else ""
-        print(f"    {gate:<18} {rate:.1%}{proxy}")
-    print("\n  ⚑ Proxy substitutions active (see CLAUDE.md §13):")
-    for gate, msg in PROXY_FLAGS.items():
-        print(f"    [{gate}] {msg}")
-    print("═" * 60 + "\n")
+    print("\n  Quality profile distribution:")
+    for prof in ("FULL_COMPOUNDER", "QUALITY_WATCH", "DEVELOPING", "QUALITY_CONCERN"):
+        print(f"    {prof:<18} {s['profile_counts'].get(prof, 0):>4}")
+    print(f"\n  EPS CAGR capped:    {s['eps_cagr_capped']:>4}  (>{EPS_CAGR_CAP:.0f}% cap applied)")
+    print("\n  Indicator pass rates (of names with data):")
+    for name, rate in s["indicator_pass_rates"].items():
+        rate_str = f"{rate:.1%}" if rate is not None else " DATA_INCOMPLETE"
+        print(f"    {name:<24} {rate_str}")
+    print("=" * 60 + "\n")
 
 
 if __name__ == "__main__":

@@ -51,24 +51,24 @@ from engines.portfolio import cmd_load_portfolio, cmd_portfolio_status, cmd_port
 from engines.screener  import run_gates, print_screen_summary, update_universe_status
 from engines.quad      import (compute_axes, assign_quadrants, compute_migrations,
                                 print_quad_distribution, top_by_quad, dangerous_migrations)
-from engines.pods      import assign_pods, print_pod_distribution
 from engines.alignment import compute_alignment, print_alignment_report
 from engines.fcf_flip  import compute_flip_scores, print_flip_screen
 
 import pandas as pd
 
 
-# ── Full pipeline ─────────────────────────────────────────────────────────────
+# ── Full pipeline (V12) ───────────────────────────────────────────────────────
+# Order: quality indicators → quad + contamination flags → signals (enriched on
+# pull) → alignment → flip. POD retired in V12 (replaced by quality_profile).
 
 def run_full_pipeline(df_raw: pd.DataFrame, previous: pd.DataFrame | None = None) -> pd.DataFrame:
     """Execute all engines in dependency order and return enriched DataFrame."""
-    df = run_gates(df_raw)
+    df = run_gates(df_raw)                       # V12 diagnostic Quality Indicators
     df = update_universe_status(df, previous)
     df = compute_axes(df)
-    df = assign_quadrants(df)
+    df = assign_quadrants(df)                     # includes earnings-quality contamination flag
     df = compute_migrations(df, previous)
-    df = assign_pods(df)
-    df = compute_alignment(df)
+    df = compute_alignment(df)                    # V12 self-computed alignment
     df = compute_flip_scores(df)
     df["last_updated"] = datetime.utcnow().isoformat()
     return df
@@ -147,8 +147,9 @@ def cmd_refresh():
 
     # ── Sync to Supabase (non-fatal) ──────────────────────────────────────────
     try:
-        from engines.supabase_sync import sync_universe_to_supabase
+        from engines.supabase_sync import sync_universe_to_supabase, pull_enriched_to_local
         sync_universe_to_supabase(df, data_date)
+        pull_enriched_to_local(data_date)
     except Exception as e:
         print(f"[Supabase] Sync skipped: {e}")
 
@@ -268,28 +269,30 @@ def cmd_who_is(ticker: str):
 ║  {r.get('company',''):<60}║
 ║  {r.get('industry',''):<60}║
 ╠══════════════════════════════════════════════════════════════╣
-║  QUADRANT:    {str(r.get('quadrant','')):<10}  EV Rank: {str(r.get('ev_rank','')):<5}  Pod: {str(r.get('pod','')):<15}║
-║  X-Axis (Earnings Mom ROC): {r.get('earnings_mom_roc', float('nan')):>+8.3f}                     ║
-║  Y-Axis (Multiple ROC):     {r.get('multiple_roc', float('nan')):>+8.3f}                     ║
+║  QUADRANT:    {str(r.get('quadrant','')):<10}  FCF/EV Rank: {str(r.get('fcf_ev_rank','') if r.get('fcf_ev_rank') is not None else '—'):<6}  Profile: {str(r.get('quality_profile','—')):<16}║
+║  X-Axis (Rev Momentum):     {r.get('earnings_mom_roc', float('nan')):>+8.3f}                     ║
+║  Y-Axis (EPS Momentum):     {r.get('multiple_roc', float('nan')):>+8.3f}                     ║
+║  Earnings Quality: {str(r.get('earnings_quality_flag','—')):<43}║
 ╠══════════════════════════════════════════════════════════════╣
 ║  Alignment Score: {r.get('alignment_score', 0):>5.1f}   Bucket: {str(r.get('alignment_bucket','')):<12}              ║
-║  PEAD Flag: {str(r.get('pead_flag','')):<50}║
+║  FV {r.get('fv_rank', float('nan')):>4.0f}  MC {r.get('mc_rank', float('nan')):>4.0f}  ESV {r.get('esv_rank', float('nan')):>4.0f}   (40/25/35)                  ║
 ║  Flip Score: {r.get('flip_score_pct', 0):>5.1f}    Setup: {str(r.get('flip_setup_type','')):<35}║
 ╠══════════════════════════════════════════════════════════════╣
-║  FIVE-GATE SCREEN                                            ║
-║  Quality    (ROIC ≥12%):     {str(r.get('roic', float('nan')))[:6]:<8} Gate: {'✓' if r.get('gate_quality') else '✗'}                ║
-║  Durability (OpMgn ≥25%):    {str(r.get('op_margin', float('nan')))[:6]:<8} Gate: {'✓' if r.get('gate_durability') else '✗'}                ║
-║  Cash Conv  (FCF Yld ≥8%):   {str(r.get('fcf_yield', float('nan')))[:6]:<8} Gate: {'✓' if r.get('gate_cash_conv') else '✗'}                ║
-║  Reinvest   (Rev CAGR ≥6%):  {str(r.get('rev_3y_cagr', float('nan')))[:6]:<8} Gate: {'✓' if r.get('gate_reinvestment') else '✗'}                ║
-║  Bal Sheet  (ND/EBITDA ≤2.5): {str(r.get('net_debt_ebitda', float('nan')))[:6]:<7} Gate: {'✓' if r.get('gate_balance_sheet') else '✗'}                ║
-║  Status: {str(r.get('universe_status','')):<53}║
+║  QUALITY INDICATORS (V12 · diagnostic)                      ║
+║  Capital Eff  (ROIC ≥10%):    {str(r.get('roic', float('nan')))[:6]:<8} {'PASS' if r.get('ind_capital_efficiency')==1 else 'fail' if r.get('ind_capital_efficiency')==0 else 'n/a '}          ║
+║  Pricing Pwr  (GM ≥30%):      {str(r.get('gross_margin', float('nan')))[:6]:<8} {'PASS' if r.get('ind_pricing_power')==1 else 'fail' if r.get('ind_pricing_power')==0 else 'n/a '}          ║
+║  Operational  (OpMgn ≥15%):   {str(r.get('op_margin', float('nan')))[:6]:<8} {'PASS' if r.get('ind_operational_efficiency')==1 else 'fail' if r.get('ind_operational_efficiency')==0 else 'n/a '}          ║
+║  Cash Conv    (FCF Mgn ≥7%):  {str(r.get('fcf_margin', float('nan')))[:6]:<8} {'PASS' if r.get('ind_cash_conversion')==1 else 'fail' if r.get('ind_cash_conversion')==0 else 'n/a '}          ║
+║  Growth Dur   (Rev CAGR ≥5%): {str(r.get('rev_3y_cagr', float('nan')))[:6]:<8} {'PASS' if r.get('ind_growth_durability')==1 else 'fail' if r.get('ind_growth_durability')==0 else 'n/a '}          ║
+║  Bal Sheet    (ND/EBITDA ≤3): {str(r.get('net_debt_ebitda', float('nan')))[:6]:<8} {'PASS' if r.get('ind_balance_sheet')==1 else 'fail' if r.get('ind_balance_sheet')==0 else 'n/a '}          ║
+║  Profile: {str(r.get('quality_profile','')):<8} ({int(r.get('indicators_pass',0))}/6 pass)                              ║
 ╠══════════════════════════════════════════════════════════════╣
 ║  Stock Price:  ${r.get('stock_price', 0):>8.2f}    Market Cap: ${r.get('market_cap', 0):>10,.0f}M      ║
-║  FCF Yield:   {r.get('fcf_yield', float('nan')):>7.1%}    Fwd FCF Yield: {r.get('fwd_fcf_yield', float('nan')):>7.1%}              ║
-║  Rev 3Y CAGR: {r.get('rev_3y_cagr', float('nan')):>7.1%}    Fwd Rev CAGR:  {r.get('fwd_rev_cagr', float('nan')):>7.1%}              ║
-║  EPS 3Y CAGR: {r.get('eps_3y_cagr', float('nan')):>7.1%}    Fwd EPS CAGR:  {r.get('fwd_eps_cagr', float('nan')):>7.1%}              ║
-║  ROIC:        {r.get('roic', float('nan')):>7.1%}    Beta:          {r.get('beta', float('nan')):>7.2f}              ║
-║  Rev Surp Q:  {r.get('rev_surprise_q', float('nan')):>+7.1%}    EPS Surp Q:    {r.get('eps_surprise_q', float('nan')):>+7.1%}              ║
+║  FCF Margin:  {r.get('fcf_margin_trailing', r.get('fcf_margin', float('nan'))):>6.1f}%    FCF Yield:     {r.get('fcf_yield', float('nan')):>6.1f}%              ║
+║  Rev 3Y CAGR: {r.get('rev_3y_cagr', float('nan')):>6.1f}%    Fwd Rev CAGR:  {r.get('fwd_rev_cagr', float('nan')):>6.1f}%              ║
+║  EPS 3Y CAGR: {r.get('eps_3y_cagr', float('nan')):>6.1f}%    Fwd EPS CAGR:  {r.get('fwd_eps_cagr', float('nan')):>6.1f}%              ║
+║  ROIC:        {r.get('roic', float('nan')):>6.1f}%    Beta:          {r.get('beta', float('nan')):>7.2f}              ║
+║  Rev Surp Q:  {r.get('rev_surprise_q', float('nan')):>+6.1f}%    EPS Surp Q:    {r.get('eps_surprise_q', float('nan')):>+6.1f}%              ║
 ╚══════════════════════════════════════════════════════════════╝
 """)
 
@@ -338,13 +341,13 @@ def cmd_full_update():
     Run all 5 IC layers in order, sync to Supabase, score everything,
     detect changes vs prior snapshot, log to journal.
 
-    Layer 1 — Five-Gate Screen       (via refresh)
-    Layer 2 — Quad Framework         (via refresh)
-    Layer 3 — Alignment Score        (via refresh)
+    Layer 1 — Quality Indicators     (via refresh)
+    Layer 2 — Quad + contamination   (via refresh)
+    Layer 3 — Alignment Score (V12)  (via refresh)
     Layer 4 — Pillar Scores          (company_scorer --review-all)
-    Layer 5 — Pods                   (via refresh)
     + Supabase sync                  (automatic in refresh)
     + Change detection + journal     (this function)
+    (POD retired in V12 — replaced by quality_profile + factor model)
     """
     import subprocess, json
     from pathlib import Path as P
@@ -364,8 +367,8 @@ def cmd_full_update():
     before_buckets = df_before.set_index("ticker")["alignment_bucket"].to_dict() if not df_before.empty else {}
     before_tickers = set(df_before["ticker"].tolist())                          if not df_before.empty else set()
 
-    # ── LAYER 1-3 + 5 + Supabase sync: refresh ────────────────────────────────
-    print(f"  [1/4] Running layers 1–3 + 5 (screen → quad → alignment → pods + Supabase sync)...")
+    # ── LAYER 1-3 + Supabase sync: refresh ─────────────────────────────────────
+    print(f"  [1/4] Running layers 1–3 (indicators → quad+flags → alignment + Supabase sync)...")
     cmd_refresh()
 
     # ── Snapshot AFTER ─────────────────────────────────────────────────────────
@@ -375,12 +378,10 @@ def cmd_full_update():
     from engines.quad import compute_axes, assign_quadrants, QUAD_NAME
     from engines.alignment import compute_alignment
     from engines.fcf_flip import compute_flip_scores
-    from engines.pods import assign_pods
 
     df_after = run_gates(df_after)
     df_after = compute_axes(df_after)
     df_after = assign_quadrants(df_after)
-    df_after = assign_pods(df_after)
     df_after = compute_alignment(df_after)
     df_after = compute_flip_scores(df_after)
 

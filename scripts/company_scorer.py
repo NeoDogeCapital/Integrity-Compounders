@@ -48,34 +48,55 @@ MODEL = "claude-sonnet-4-5"
 
 PILLAR_PROMPT = """
 You are a senior equity analyst scoring a company for the Integrity Compounders
-portfolio — a concentrated quality-compounder strategy.
+portfolio — a concentrated quality-compounder strategy (Methodology V12).
 
 Score each of the three pillars from 1.0 to 10.0 with one decimal place.
 Provide 2-3 sentences of reasoning per pillar citing specific data.
 
-PILLAR 1 — BUSINESS QUALITY (40% weight)
-Consider: ROIC level and trend (floor ≥12%), gross margin (floor ≥35%),
-FCF margin (floor ≥10%), pricing power evidence, moat durability
-(switching costs, network effects, brand, cost advantages),
-revenue quality (recurring vs transactional), FCF conversion (FCF/NI).
-A 9-10 requires ROIC >25%, gross margin >55%, clear durable moat.
+CRITICAL V12 RULE: VALUATION IS NOT PART OF ANY PILLAR. Do not reward or penalize
+a company for being cheap or expensive in any pillar. Valuation is handled
+separately by QGS and FCF/EV. Score business quality, management, and financial
+strength on their own merits regardless of price.
 
-PILLAR 2 — MANAGEMENT INTEGRITY (35% weight)
-Consider: founder-led or owner-operator (+0.5 to +1.0 bonus),
-insider ownership >5% (alignment signal), capital allocation track record
-(buybacks at right prices, M&A discipline), communication quality
-(honest about problems, no promotional language), compensation alignment.
-HARD FLOOR: score below 6.0 blocks any portfolio position.
+PILLAR 1 — BUSINESS QUALITY (40% weight) — three anchors, score each then average:
+  (a) Moat Durability — what structurally keeps competitors out (switching costs,
+      network effects, brand, cost/scale advantages, regulatory). How durable.
+  (b) Economics Sustainability — will margins and returns hold for 5 years? Use the
+      ROIC LEVEL as a structural-quality signal (high absolute ROIC = strong economics).
+      Consider gross margin, FCF margin, pricing power, revenue quality (recurring
+      vs transactional), FCF conversion (FCF/NI).
+  (c) Reinvestment Quality — is there organic runway to deploy capital at high
+      incremental returns? Reinvestment rate × incremental ROIC.
+  Report p1_moat_score, p1_economics_score, p1_reinvestment_score; p1_score is their average.
+  A 9-10 requires a clearly durable moat, ROIC >25%, and a long high-return runway.
 
-PILLAR 3 — FINANCIAL STRENGTH (25% weight)
-Consider: Net Debt/EBITDA (floor ≤2.5×, reward net cash),
-FCF positive for 5+ consecutive years, margin trajectory (expanding/stable/compressing),
-revenue growth consistency, interest coverage, ability to self-fund growth.
-HARD FLOOR: score below 6.0 blocks any portfolio position.
+PILLAR 2 — MANAGEMENT & CAPITAL ALLOCATION (35% weight) — HARD FLOOR 6.0:
+  - Capital Allocation Effectiveness (40%): use ROIC TRAJECTORY (rising / stable /
+    eroding) as the primary evidence of management skill; M&A discipline, buyback
+    discipline (price-aware), SBC as % of revenue.
+  - Alignment & Integrity (35%): founder-led / owner-operator, insider ownership,
+    compensation structure aligned to long-term value.
+  - Communication Quality (25%): honesty about problems, guidance accuracy,
+    strategy consistency, no promotional language.
+  HARD FLOOR: a score below 6.0 blocks any portfolio position.
+
+PILLAR 3 — FINANCIAL STRENGTH (25% weight) — HARD FLOOR 6.0:
+  - Balance Sheet Resilience (35%): Net Debt/EBITDA (reward net cash), interest coverage.
+  - Earnings & Cash Quality (35%): FCF conversion, revenue consistency, multi-year FCF track record.
+  - Self-Funding Ability (30%): can growth be funded internally without dilution?
+  HARD FLOOR: a score below 6.0 blocks any portfolio position.
+
+EARNINGS QUALITY CONTEXT: if the company is flagged EPS_ENGINEERED (EPS accelerating
+but gross profit NOT), apply extra scrutiny to P1 economics sustainability and P2
+capital allocation — the earnings growth may be financially engineered rather than
+backed by unit economics. Note this explicitly in your reasoning when present.
 
 Return ONLY valid JSON in exactly this format — no markdown, no preamble:
 {
   "p1_score": 8.5,
+  "p1_moat_score": 8.0,
+  "p1_economics_score": 9.0,
+  "p1_reinvestment_score": 8.5,
   "p1_reasoning": "...",
   "p2_score": 7.5,
   "p2_reasoning": "...",
@@ -104,7 +125,10 @@ def get_company_data(cur, ticker):
                cmd.earnings_momentum_roc, cmd.multiple_roc,
                cmd.beta, cmd.momentum_3m, cmd.momentum_12m,
                cmd.fcf_conversion, cmd.roic_spread, cmd.market_cap,
-               cmd.pe_forward, cmd.ev_ebitda, cmd.current_price
+               cmd.pe_forward, cmd.ev_ebitda, cmd.current_price,
+               cmd.earnings_quality_flag, cmd.eps_acceleration, cmd.gp_acceleration,
+               cmd.quality_growth_score, cmd.qgs_tier, cmd.ger_flag,
+               cmd.fcf_ev_rank, cmd.sbc_pct_revenue, cmd.quality_profile
         FROM companies c
         LEFT JOIN LATERAL (
             SELECT p1_business_quality, p2_management, p3_financial_strength,
@@ -120,7 +144,10 @@ def get_company_data(cur, ticker):
                    earnings_momentum_roc, multiple_roc,
                    beta, momentum_3m, momentum_12m,
                    fcf_conversion, roic_spread, market_cap,
-                   pe_forward, ev_ebitda, current_price
+                   pe_forward, ev_ebitda, current_price,
+                   earnings_quality_flag, eps_acceleration, gp_acceleration,
+                   quality_growth_score, qgs_tier, ger_flag,
+                   fcf_ev_rank, sbc_pct_revenue, quality_profile
             FROM company_market_data WHERE company_id = c.id
             ORDER BY data_date DESC LIMIT 1
         ) cmd ON TRUE
@@ -172,21 +199,27 @@ def build_context(row, col_names, research, earnings):
         f"Sector: {d.get('sector')} | Industry: {d.get('industry')}",
         f"Founder-led: {d.get('is_founder_led')} | Insider ownership: {d.get('insider_ownership_pct')}%",
         "",
-        "QUANTITATIVE FUNDAMENTALS:",
-        f"  ROIC (trailing):         {_fmt(d.get('roic_trailing'), '%')}",
+        "QUANTITATIVE FUNDAMENTALS (score P1-P3 on these; IGNORE valuation):",
+        f"  ROIC (trailing) [P1 LEVEL]:   {_fmt(d.get('roic_trailing'), '%')}",
+        f"  ROIC Spread vs WACC [P2 TRAJ]:{_fmt(d.get('roic_spread'), '%')}",
         f"  Gross Margin:            {_fmt(d.get('gross_margin_trailing'), '%')}",
         f"  FCF Margin:              {_fmt(d.get('fcf_margin_trailing'), '%')}",
         f"  Revenue 3Y CAGR:         {_fmt(d.get('revenue_3y_cagr_trailing'), '%')}",
         f"  Fwd Revenue CAGR:        {_fmt(d.get('fwd_revenue_3y_cagr'), '%')}",
         f"  Net Debt/EBITDA:         {_fmt(d.get('net_debt_ebitda'), 'x')}",
         f"  FCF Conversion (FCF/NI): {_fmt(d.get('fcf_conversion'), '%')}",
-        f"  ROIC Spread vs WACC:     {_fmt(d.get('roic_spread'), '%')}",
-        f"  FCF Yield Current:       {_fmt(d.get('fcf_yield_current'), '%')}",
-        f"  FCF Yield Forward:       {_fmt(d.get('fcf_yield_forward'), '%')}",
-        f"  Forward P/E:             {_fmt(d.get('pe_forward'), 'x')}",
+        f"  SBC % of Revenue:        {_fmt(d.get('sbc_pct_revenue'))}",
         f"  Beta:                    {_fmt(d.get('beta'))}",
-        f"  3M Momentum:             {_fmt(d.get('momentum_3m'), '%')}",
-        f"  12M Momentum:            {_fmt(d.get('momentum_12m'), '%')}",
+        f"  3M / 12M Momentum:       {_fmt(d.get('momentum_3m'), '%')} / {_fmt(d.get('momentum_12m'), '%')}",
+        "",
+        "V12 SIGNALS (context — valuation lives here, NOT in the pillars):",
+        f"  Quality Profile:         {d.get('quality_profile') or 'N/A'}",
+        f"  QGS Tier:                {d.get('qgs_tier') or 'N/A'}  (QGS={_fmt(d.get('quality_growth_score'))})",
+        f"  GER Flag:                {d.get('ger_flag') or 'N/A'}",
+        f"  FCF/EV Rank (valuation): {_fmt(d.get('fcf_ev_rank'))}",
+        f"  EARNINGS QUALITY FLAG:   {d.get('earnings_quality_flag') or 'N/A'}  "
+        f"(EPS accel={_fmt(d.get('eps_acceleration'))}, GP accel={_fmt(d.get('gp_acceleration'))})",
+        f"  Valuation (NOT scored):  Fwd P/E {_fmt(d.get('pe_forward'),'x')} | EV/EBITDA {_fmt(d.get('ev_ebitda'),'x')}",
         "",
         "PRIOR SCORES (v2):",
         f"  P1 Business Quality:     {d.get('p1_business_quality') or 'None'}",
@@ -313,6 +346,12 @@ def score_company(ticker: str, interactive: bool = False, memo_only: bool = Fals
     else:
         scored_by = 'AI-Assisted'
 
+    # V12 P1 sub-scores (default to p1 if model omits them)
+    p1_moat = float(scores.get('p1_moat_score', p1))
+    p1_econ = float(scores.get('p1_economics_score', p1))
+    p1_reinv = float(scores.get('p1_reinvestment_score', p1))
+    eq_flag = d.get('earnings_quality_flag')
+
     # Write to Supabase
     cur.execute("""
         INSERT INTO company_scores (
@@ -321,8 +360,10 @@ def score_company(ticker: str, interactive: bool = False, memo_only: bool = Fals
             composite_score_v2, tier_classification,
             prior_composite_score, score_delta, score_changed,
             score_notes,
-            pillar_4_reinvestment, pillar_5_valuation
-        ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+            pillar_4_reinvestment, pillar_5_valuation,
+            p1_moat_score, p1_economics_score, p1_reinvestment_score,
+            earnings_quality_flag
+        ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
     """, (
         company_id, date.today(), scored_by,
         p1, p2, p3, composite, tier,
@@ -334,7 +375,8 @@ def score_company(ticker: str, interactive: bool = False, memo_only: bool = Fals
             'key_strengths': scores.get('key_strengths', []),
             'summary':       scores.get('investment_summary', ''),
         }),
-        None, None,  # p4/p5 retired
+        None, None,  # p4/p5 retired (valuation removed from pillars in V12)
+        p1_moat, p1_econ, p1_reinv, eq_flag,
     ))
     conn.commit()
 
@@ -431,7 +473,7 @@ def _generate_and_save_memo(ticker, d, scores, p1, p2, p3, composite, tier, elig
     <div class="{'pass' if p3 >= 6.0 else 'flag'}">{'✅' if p3 >= 6.0 else '❌'} P3 Financial Strength ≥ 6.0: {p3}</div>
   </div>
 </div>
-<div class="footer">Integrity Compounders · Alpha System v11.0 · {run_ts} · Internal Use Only</div>
+<div class="footer">Integrity Compounders · Alpha System V12 · {run_ts} · Internal Use Only</div>
 </body></html>"""
 
     memo_path = REPORTS / f"{ticker.upper()}_company_memo_{date.today()}.html"

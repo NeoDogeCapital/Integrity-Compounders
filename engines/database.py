@@ -11,7 +11,8 @@ from pathlib import Path
 
 DB_PATH = Path(__file__).parent.parent / "data" / "universe.db"
 
-# ── Column definitions matching the 26-column Fiscal AI v9 export ────────────
+# ── Column definitions matching the Fiscal AI export ─────────────────────────
+# Legacy 26-column positional order (kept for backwards compat with old CSVs)
 RAW_COLUMNS = [
     "ticker", "company", "country", "exchange", "industry",
     "eps_surprise_q", "rev_surprise_q",
@@ -24,6 +25,46 @@ RAW_COLUMNS = [
     "roic", "tr_5y_cagr",
 ]
 
+# Header-name → internal name for 31-column v10 export (and any future exports)
+HEADER_MAP = {
+    "ticker":                                           "ticker",
+    "company":                                          "company",
+    "country":                                          "country",
+    "exchange":                                         "exchange",
+    "industry":                                         "industry",
+    "free cash flow (m)":                               "fcf_ttm",
+    "total enterprise value (tev) (m)":                 "enterprise_value",
+    "stock-based compensation (cash flow statement) (m)": "sbc_dollar",
+    "free cash flow margin":                            "fcf_margin",
+    "shares out growth 3y (cagr)":                      "shares_out_growth_3y_cagr",
+    "eps normalized actual vs estimate (quarterly)":    "eps_surprise_q",
+    "revenue actual vs estimate (quarterly)":           "rev_surprise_q",
+    "fcf yield":                                        "fcf_yield",
+    "forward fcf yield":                                "fwd_fcf_yield",
+    "stock price":                                      "stock_price",
+    "tr 1m performance":                                "tr_1m",
+    "ytd performance":                                  "ytd_perf",
+    "revenue forward 2y cagr":                          "fwd_rev_cagr",
+    "capex to revenue":                                 "capex_to_rev",
+    "peg ratio":                                        "peg",
+    "market cap (m)":                                   "market_cap",
+    "buyback yield":                                    "buyback_yield",
+    "revenue 3y cagr":                                  "rev_3y_cagr",
+    "operating margin":                                 "op_margin",
+    "net debt / ebitda":                                "net_debt_ebitda",
+    "beta":                                             "beta",
+    "tr 3y performance (cagr)":                         "tr_3y_cagr",
+    "diluted eps 3y cagr":                              "eps_3y_cagr",
+    "eps normalized forward 2y cagr":                   "fwd_eps_cagr",
+    "return on invested capital":                       "roic",
+    "tr 5y performance (cagr)":                         "tr_5y_cagr",
+    # ── V12 — earnings-quality contamination detector inputs ──────────────
+    "diluted eps 1y cagr":                              "eps_cagr_1y",
+    "gross profit 1y cagr":                             "gp_cagr_1y",
+    "gross profit 3y cagr":                             "gp_cagr_3y",
+    "gross margin":                                     "gross_margin",
+}
+
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS universe (
     ticker          TEXT PRIMARY KEY,
@@ -33,6 +74,11 @@ CREATE TABLE IF NOT EXISTS universe (
     industry        TEXT,
     eps_surprise_q  REAL,
     rev_surprise_q  REAL,
+    fcf_ttm         REAL,
+    enterprise_value REAL,
+    sbc_dollar      REAL,
+    fcf_margin      REAL,
+    shares_out_growth_3y_cagr REAL,
     fcf_yield       REAL,
     fwd_fcf_yield   REAL,
     stock_price     REAL,
@@ -289,12 +335,17 @@ def load_csv(path: str | Path, data_date: str | None = None) -> pd.DataFrame:
         except Exception:
             continue
 
-    # If the CSV has 26+ columns, use positional assignment
-    if df.shape[1] >= 26:
-        df = df.iloc[:, :26]
+    # Map columns by header name (supports both 26-column v9 and 31-column v10 exports)
+    raw_headers = [c.strip().lower() for c in df.columns]
+    mapped = {c: HEADER_MAP[c] for c in raw_headers if c in HEADER_MAP}
+    if len(mapped) >= 10:
+        # Rename known headers; drop unmapped columns
+        df.columns = [HEADER_MAP.get(c, c) for c in raw_headers]
+    elif df.shape[1] == 26:
+        # Fallback: legacy positional assignment for exact 26-column export
         df.columns = RAW_COLUMNS
     else:
-        # Try to map by header names (case-insensitive fuzzy)
+        # Last resort: snake_case the headers as-is
         df.columns = [c.strip().lower().replace(" ", "_").replace("/", "_")
                       for c in df.columns]
 
@@ -303,7 +354,9 @@ def load_csv(path: str | Path, data_date: str | None = None) -> pd.DataFrame:
     df["ticker"] = df["ticker"].astype(str).str.strip().str.upper()
 
     # Coerce all numeric columns (strip $, %, commas first)
-    numeric_cols = RAW_COLUMNS[5:]  # everything after industry
+    numeric_cols = [c for c in list(HEADER_MAP.values()) + RAW_COLUMNS
+                    if c not in ("ticker", "company", "country", "exchange", "industry")]
+    numeric_cols = list(dict.fromkeys(numeric_cols))  # dedupe preserving order
     for col in numeric_cols:
         if col in df.columns:
             df[col] = (

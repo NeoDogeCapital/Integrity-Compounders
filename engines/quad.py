@@ -115,6 +115,58 @@ def compute_axes(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
+# ── V12: Earnings Quality Contamination Detector ──────────────────────────────
+def _earnings_quality_flag(eps_acc, gp_acc) -> str:
+    """
+    Classify earnings acceleration against gross-profit acceleration.
+
+    EPS is vulnerable to buybacks, tax, SBC, and D&A choices. We verify the
+    earnings signal against trailing gross profit, which is far harder to
+    financially engineer.
+
+      EPS_CONFIRMED   — EPS accelerating AND gross profit accelerating
+      EPS_ENGINEERED  — EPS accelerating, gross profit NOT — scrutinize
+      GP_LEADING      — gross profit accelerating ahead of EPS — early inflection
+      NEUTRAL         — neither accelerating
+      DATA_INCOMPLETE — an input is missing (never a false classification)
+    """
+    if eps_acc is None or gp_acc is None or pd.isna(eps_acc) or pd.isna(gp_acc):
+        return "DATA_INCOMPLETE"
+    eps_up = eps_acc > 0
+    gp_up  = gp_acc > 0
+    if eps_up and gp_up:
+        return "EPS_CONFIRMED"
+    if eps_up and not gp_up:
+        return "EPS_ENGINEERED"
+    if gp_up and not eps_up:
+        return "GP_LEADING"
+    return "NEUTRAL"
+
+
+def compute_earnings_quality(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    V12 contamination detector. Requires trailing 1Y/3Y CAGR columns from the
+    Fiscal AI CSV: eps_cagr_1y, eps_3y_cagr, gp_cagr_1y, gp_cagr_3y.
+
+    Adds: eps_acceleration, gp_acceleration, earnings_quality_flag.
+    Missing inputs yield DATA_INCOMPLETE rather than a false flag.
+    """
+    df = df.copy()
+
+    eps_1y = df["eps_cagr_1y"] if "eps_cagr_1y" in df.columns else pd.Series(np.nan, index=df.index)
+    eps_3y = df["eps_3y_cagr"] if "eps_3y_cagr" in df.columns else pd.Series(np.nan, index=df.index)
+    gp_1y  = df["gp_cagr_1y"]  if "gp_cagr_1y"  in df.columns else pd.Series(np.nan, index=df.index)
+    gp_3y  = df["gp_cagr_3y"]  if "gp_cagr_3y"  in df.columns else pd.Series(np.nan, index=df.index)
+
+    df["eps_acceleration"] = eps_1y - eps_3y
+    df["gp_acceleration"]  = gp_1y  - gp_3y
+    df["earnings_quality_flag"] = df.apply(
+        lambda r: _earnings_quality_flag(r["eps_acceleration"], r["gp_acceleration"]),
+        axis=1,
+    )
+    return df
+
+
 def compute_fcf_spread(df: pd.DataFrame) -> pd.DataFrame:
     """
     FCF Yield Spread — standalone valuation overlay.
@@ -161,6 +213,9 @@ def assign_quadrants(df: pd.DataFrame) -> pd.DataFrame:
 
     # FCF Yield Spread valuation overlay
     df = compute_fcf_spread(df)
+
+    # V12 — earnings-quality contamination detector
+    df = compute_earnings_quality(df)
 
     # Clipped coordinates for chart (visualization layer)
     df["x_clipped"]    = df["earnings_mom_roc"].clip(*X_CLIP)
