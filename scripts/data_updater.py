@@ -549,13 +549,14 @@ def load_fiscal_csv_signals(conn):
         elif 'market cap' in cl:
             col_map[col] = 'market_cap'
         # ── V12 contamination-detector inputs ──────────────────────────────
-        elif 'diluted eps 1y cagr' in cl or ('eps' in cl and '1y cagr' in cl and 'forward' not in cl):
+        # 1Y series export as "...1Y Growth"; 3Y as "...3Y CAGR".
+        elif 'diluted eps 1y' in cl and 'forward' not in cl:
             col_map[col] = 'eps_cagr_1y'
-        elif 'diluted eps 3y cagr' in cl or ('eps' in cl and '3y cagr' in cl and 'forward' not in cl):
+        elif 'diluted eps 3y' in cl and 'forward' not in cl:
             col_map[col] = 'eps_3y_cagr'
-        elif 'gross profit 1y cagr' in cl:
+        elif 'gross profit 1y' in cl:
             col_map[col] = 'gp_cagr_1y'
-        elif 'gross profit 3y cagr' in cl:
+        elif 'gross profit 3y' in cl:
             col_map[col] = 'gp_cagr_3y'
         else:
             col_map[col] = col

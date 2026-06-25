@@ -84,7 +84,8 @@ IC_PIPELINE_FIELDS = [
     ("ind_operational_efficiency", "gate_operational_efficiency", "BOOLEAN"),
     ("ind_cash_conversion",        "gate_cash_conversion",        "BOOLEAN"),
     ("ind_growth_durability",      "gate_growth_durability",      "BOOLEAN"),
-    ("ind_balance_sheet",          "gate_balance_sheet",          "BOOLEAN"),
+    # NB: gate_balance_sheet is already pushed via the legacy alias above —
+    # do not re-map ind_balance_sheet to it (would duplicate the INSERT column).
 ]
 
 # Fields to pull back from Supabase into local SQLite

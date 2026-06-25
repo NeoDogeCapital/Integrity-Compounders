@@ -60,7 +60,9 @@ HEADER_MAP = {
     "tr 5y performance (cagr)":                         "tr_5y_cagr",
     # ── V12 — earnings-quality contamination detector inputs ──────────────
     "diluted eps 1y cagr":                              "eps_cagr_1y",
+    "diluted eps 1y growth":                            "eps_cagr_1y",
     "gross profit 1y cagr":                             "gp_cagr_1y",
+    "gross profit 1y growth":                           "gp_cagr_1y",
     "gross profit 3y cagr":                             "gp_cagr_3y",
     "gross margin":                                     "gross_margin",
 }
