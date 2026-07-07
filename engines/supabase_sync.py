@@ -287,10 +287,14 @@ def sync_universe_to_supabase(df: pd.DataFrame, data_date: str) -> None:
 
         # 4. Upsert full market data row per company per date
         # Build dynamic column list from IC_PIPELINE_FIELDS
+        # NOTE: gross_margin_trailing is intentionally NOT pushed here. It is owned
+        # by data_updater (yfinance grossMargins). Previously op_margin was written
+        # into gross_margin_trailing here, clobbering the real gross margin every
+        # refresh — that mapping bug is removed.
         base_cols = [
             "company_id", "ticker", "data_date",
             "current_price", "market_cap",
-            "roic_trailing", "gross_margin_trailing",
+            "roic_trailing",
             "fcf_yield_current", "fcf_yield_forward",
             "revenue_3y_cagr_trailing", "net_debt_ebitda",
             "fwd_revenue_3y_cagr", "fwd_eps_3y_cagr",
@@ -314,7 +318,7 @@ def sync_universe_to_supabase(df: pd.DataFrame, data_date: str) -> None:
             base_vals = [
                 cid, ticker, data_date,
                 _safe(row.get("stock_price")),  _safe(row.get("market_cap")),
-                _safe(row.get("roic")),          _safe(row.get("op_margin")),
+                _safe(row.get("roic")),
                 _safe(row.get("fcf_yield")),     _safe(row.get("fwd_fcf_yield")),
                 _safe(row.get("rev_3y_cagr")),   _safe(row.get("net_debt_ebitda")),
                 _safe(row.get("fwd_rev_cagr")),  _safe(row.get("fwd_eps_cagr")),
