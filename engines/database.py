@@ -65,6 +65,7 @@ HEADER_MAP = {
     "gross profit 1y growth":                           "gp_cagr_1y",
     "gross profit 3y cagr":                             "gp_cagr_3y",
     "gross margin":                                     "gross_margin",
+    "gross profit margin":                              "gross_margin",
 }
 
 SCHEMA = """
@@ -190,6 +191,16 @@ CREATE TABLE IF NOT EXISTS decision_journal (
     auto        INTEGER DEFAULT 0  -- 1=auto-generated, 0=manual
 );
 
+CREATE TABLE IF NOT EXISTS universe_membership_log (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    logged_at   TEXT NOT NULL,
+    data_date   TEXT NOT NULL,
+    ticker      TEXT NOT NULL,
+    event       TEXT NOT NULL,      -- ENTER / EXIT
+    is_holding  INTEGER DEFAULT 0,  -- 1 if a current portfolio holding at event time
+    note        TEXT
+);
+
 CREATE TABLE IF NOT EXISTS portfolio_holdings (
     id                  INTEGER PRIMARY KEY AUTOINCREMENT,
     snapshot_date       TEXT NOT NULL,          -- YYYY-MM-DD of this snapshot
@@ -312,9 +323,25 @@ def get_conn() -> sqlite3.Connection:
     return conn
 
 
+# V12 raw inputs mapped from the extended Fiscal AI export but not in the base
+# CREATE TABLE. The read commands (who_is, quad_snapshot) recompute indicators
+# live from the persisted universe, so these must be stored or pricing_power /
+# earnings_quality_flag fall back to DATA_INCOMPLETE. ALTER them in if missing.
+_MIGRATION_COLUMNS = {
+    "gross_margin": "REAL",
+    "gp_cagr_1y":   "REAL",
+    "gp_cagr_3y":   "REAL",
+    "eps_cagr_1y":  "REAL",
+}
+
+
 def init_db():
     with get_conn() as conn:
         conn.executescript(SCHEMA)
+        existing = {r[1] for r in conn.execute("PRAGMA table_info(universe)")}
+        for col, typ in _MIGRATION_COLUMNS.items():
+            if col not in existing:
+                conn.execute(f"ALTER TABLE universe ADD COLUMN {col} {typ}")
     print(f"[DB] Initialized: {DB_PATH}")
 
 
@@ -387,32 +414,107 @@ def load_csv(path: str | Path, data_date: str | None = None) -> pd.DataFrame:
     return df
 
 
+def _sqlite_scalar(v):
+    """Coerce a pandas/numpy cell to a value sqlite3 can bind.
+    NaN/NaT/None → None; numpy scalars → native Python; everything else as-is."""
+    try:
+        if pd.isna(v):
+            return None
+    except (TypeError, ValueError):
+        pass  # arrays / unhashables never occur here, but stay safe
+    item = getattr(v, "item", None)
+    if callable(item):
+        try:
+            return v.item()
+        except (ValueError, AttributeError):
+            return v
+    return v
+
+
 def upsert_universe(df: pd.DataFrame):
-    """Write raw data into universe table (upsert on ticker)."""
+    """Upsert the full pipeline output into the universe table (keyed on ticker).
+
+    Persists EVERY DataFrame column that exists in the universe schema — raw
+    screener fields AND computed columns (quadrant, alignment, gates, flip, QGS,
+    earnings-quality flag, …). Columns absent from df are left untouched, so the
+    Supabase enrichment pull that follows a refresh is never clobbered.
+    """
     now = datetime.utcnow().isoformat()
     df = df.copy()
     df["last_updated"] = now
-    df["universe_status"] = df.get("universe_status", "active")
-
-    cols = [c for c in RAW_COLUMNS + ["data_date", "last_updated", "universe_status"]
-            if c in df.columns]
-
-    placeholders = ", ".join(["?" for _ in cols])
-    col_str = ", ".join(cols)
-    update_str = ", ".join([f"{c}=excluded.{c}" for c in cols if c != "ticker"])
+    if "universe_status" not in df.columns:
+        df["universe_status"] = "active"
 
     with get_conn() as conn:
+        table_cols = [r[1] for r in conn.execute("PRAGMA table_info(universe)")]
+        # Write every df column that is a real universe column (skip the PK).
+        cols = [c for c in table_cols if c != "id" and c in df.columns]
+        if "ticker" not in cols:
+            raise ValueError("upsert_universe: df missing required 'ticker' column")
+
+        placeholders = ", ".join(["?" for _ in cols])
+        col_str = ", ".join(cols)
+        update_str = ", ".join([f"{c}=excluded.{c}" for c in cols if c != "ticker"])
+
         for _, row in df[cols].iterrows():
             conn.execute(
                 f"""INSERT INTO universe ({col_str}) VALUES ({placeholders})
                     ON CONFLICT(ticker) DO UPDATE SET {update_str}""",
-                list(row)
+                [_sqlite_scalar(v) for v in row]
             )
         conn.execute(
             "INSERT INTO snapshots (data_date, loaded_at, source_file, row_count) VALUES (?,?,?,?)",
             [df["data_date"].iloc[0], now, None, len(df)]
         )
-    print(f"[DB] Upserted {len(df)} rows into universe table.")
+    print(f"[DB] Upserted {len(df)} rows into universe table ({len(cols)} columns).")
+
+
+def deactivate_absent(current_tickers) -> int:
+    """Mark active universe rows whose ticker is not in the current screen as
+    'inactive', so read commands reflect only the live universe. Rows are kept
+    (not deleted) for auditability; quad_history and Supabase retain full history.
+    Returns the number of names deactivated."""
+    current = {str(t).strip().upper() for t in current_tickers}
+    with get_conn() as conn:
+        active = [r[0] for r in conn.execute(
+            "SELECT ticker FROM universe WHERE universe_status = 'active'")]
+        stale = sorted(t for t in active if str(t).strip().upper() not in current)
+        for t in stale:
+            conn.execute(
+                "UPDATE universe SET universe_status = 'inactive' WHERE ticker = ?", [t])
+    if stale:
+        print(f"[DB] Deactivated {len(stale)} names absent from current screen: "
+              f"{', '.join(stale)}")
+    return len(stale)
+
+
+def log_universe_membership(entered, exited, data_date, holdings=None) -> dict:
+    """Record names entering / leaving the screened universe on this refresh into
+    universe_membership_log. `holdings` = current portfolio tickers (flagged on
+    exit). Returns {'entered', 'exited', 'held_exits'}."""
+    holds = {str(t).strip().upper() for t in (holdings or [])}
+    entered = sorted({str(t).strip().upper() for t in entered})
+    exited  = sorted({str(t).strip().upper() for t in exited})
+    now = datetime.utcnow().isoformat()
+    rows = ([(now, data_date, t, "ENTER", 1 if t in holds else 0, None) for t in entered]
+            + [(now, data_date, t, "EXIT", 1 if t in holds else 0, None) for t in exited])
+    if rows:
+        with get_conn() as conn:
+            conn.executemany(
+                """INSERT INTO universe_membership_log
+                   (logged_at, data_date, ticker, event, is_holding, note)
+                   VALUES (?,?,?,?,?,?)""", rows)
+    return {"entered": entered, "exited": exited,
+            "held_exits": [t for t in exited if t in holds]}
+
+
+def get_membership_log(limit: int = 200) -> pd.DataFrame:
+    """Return recent universe enter/exit events, newest first."""
+    with get_conn() as conn:
+        return pd.read_sql(
+            "SELECT logged_at, data_date, ticker, event, is_holding, note "
+            "FROM universe_membership_log ORDER BY id DESC LIMIT ?",
+            conn, params=[limit])
 
 
 def get_universe(status: str = "active") -> pd.DataFrame:

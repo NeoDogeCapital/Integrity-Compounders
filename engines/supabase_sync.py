@@ -400,6 +400,10 @@ def pull_enriched_to_local(data_date: str | None = None) -> int:
 
         df_qgs = _query_latest_nonnull(sb_cur, qgs_fields, "quality_growth_score")
         df_yf  = _query_latest_nonnull(sb_cur, yf_fields,  "rsi_14")
+        # rest_fields (contamination flag, accelerations, fcf_ev_rank) are pushed
+        # together on the pipeline data_date — anchor on earnings_quality_flag.
+        df_rest = _query_latest_nonnull(sb_cur, rest_fields, "earnings_quality_flag") \
+                  if rest_fields else pd.DataFrame(columns=["ticker"])
 
         # Ticker spine: every ticker that has ever appeared in company_market_data
         sb_cur.execute("SELECT DISTINCT ticker FROM company_market_data ORDER BY ticker")
@@ -410,6 +414,8 @@ def pull_enriched_to_local(data_date: str | None = None) -> int:
             df_pull = df_pull.merge(df_qgs, on="ticker", how="left")
         if not df_yf.empty:
             df_pull = df_pull.merge(df_yf, on="ticker", how="left")
+        if not df_rest.empty:
+            df_pull = df_pull.merge(df_rest, on="ticker", how="left")
 
         # Fill any PULL_BACK_FIELDS columns that didn't come through
         for f in PULL_BACK_FIELDS:

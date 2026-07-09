@@ -17,6 +17,7 @@ Usage:
     python run.py q1q2 report                     Focused Q1+Q2 HTML report
     python run.py monthly rebalance               Monthly rebalance memo with trade summary
     python run.py migration log                   All quad migrations since last snapshot
+    python run.py universe log                     Universe screen entries & exits over time
     python run.py watch                                   Watch Clippings/ + PDFs/ — auto-analyze on drop
     python run.py analyze PATH [TICKER]                   Analyze a PDF or chart image with Claude vision
     python run.py load portfolio                           Load portfolio.csv, enrich + save
@@ -44,7 +45,8 @@ sys.path.insert(0, str(ROOT))
 from engines.database import (
     init_db, load_csv, upsert_universe, get_universe,
     get_last_snapshot_date, log_decision, save_quad_history,
-    log_migration, get_conn,
+    log_migration, get_conn, deactivate_absent,
+    log_universe_membership, get_membership_log,
 )
 from engines.trade_log import interactive_log_trade, quick_log_trade
 from engines.portfolio import cmd_load_portfolio, cmd_portfolio_status, cmd_portfolio_snapshot
@@ -76,9 +78,42 @@ def run_full_pipeline(df_raw: pd.DataFrame, previous: pd.DataFrame | None = None
 
 # ── Commands ──────────────────────────────────────────────────────────────────
 
+def _load_holding_tickers() -> set:
+    """Current portfolio tickers from data/raw/portfolio.csv (empty set if absent)."""
+    import csv as _csv
+    p = ROOT / "data" / "raw" / "portfolio.csv"
+    if not p.exists():
+        return set()
+    try:
+        with open(p) as f:
+            return {r["ticker"].strip().upper() for r in _csv.DictReader(f) if r.get("ticker")}
+    except Exception:
+        return set()
+
+
+def cmd_universe_log(limit: int = 60):
+    """Print recent universe membership churn — names entering / exiting the screen."""
+    df = get_membership_log(limit=limit)
+    print("\n" + "=" * 64)
+    print("  UNIVERSE MEMBERSHIP LOG — screen entries & exits (newest first)")
+    print("=" * 64)
+    if df.empty:
+        print("  No membership events logged yet. Run `refresh` to start tracking.\n")
+        return
+    for _, r in df.iterrows():
+        arrow = "+ ENTER" if r["event"] == "ENTER" else "- EXIT "
+        hold = "  ★HOLDING" if r["is_holding"] else ""
+        print(f"  {r['data_date']}  {arrow}  {r['ticker']:<6}{hold}")
+    n_enter = int((df["event"] == "ENTER").sum())
+    n_exit  = int((df["event"] == "EXIT").sum())
+    print("-" * 64)
+    print(f"  {len(df)} events shown  ·  {n_enter} entries  ·  {n_exit} exits")
+    print("=" * 64 + "\n")
+
+
 def cmd_status():
     last = get_last_snapshot_date()
-    df = get_universe(status="all")
+    df = get_universe(status="active")
     if df.empty:
         print("\n[Status] Universe is EMPTY. Drop a Fiscal AI CSV into data/raw/ and run `refresh`.\n")
         return
@@ -162,6 +197,21 @@ def cmd_refresh():
                 )
 
     upsert_universe(df)
+    deactivate_absent(df["ticker"])
+
+    # Track universe churn (names entering / exiting the screen) over time.
+    curr_t = {str(t).strip().upper() for t in df["ticker"]}
+    prev_t = ({str(t).strip().upper() for t in previous["ticker"]}
+              if previous is not None and "ticker" in previous.columns else set())
+    holdings = _load_holding_tickers()
+    churn = log_universe_membership(curr_t - prev_t, prev_t - curr_t, data_date, holdings)
+    if churn["entered"] or churn["exited"]:
+        print(f"[Universe] churn vs prior screen: +{len(churn['entered'])} entered / "
+              f"-{len(churn['exited'])} exited")
+    if churn["held_exits"]:
+        print(f"  ⚠️  HOLDING(S) that fell OUT of the screener: "
+              f"{', '.join(churn['held_exits'])} — still held, now inactive. Review.")
+
     save_quad_history(df, data_date)
     print_screen_summary(df)
     print_quad_distribution(df)
@@ -185,7 +235,7 @@ def cmd_refresh():
 
 
 def cmd_quad_snapshot():
-    df = get_universe(status="all")
+    df = get_universe(status="active")
     if df.empty:
         print("[Error] Universe empty. Run `refresh` first."); return
     df = run_full_pipeline(df)
@@ -199,7 +249,7 @@ def cmd_quad_snapshot():
 
 
 def cmd_q2_list():
-    df = get_universe(status="all")
+    df = get_universe(status="active")
     if df.empty:
         print("[Error] Universe empty. Run `refresh` first."); return
     df = run_full_pipeline(df)
@@ -217,7 +267,7 @@ def cmd_q2_list():
 
 
 def cmd_q3_watch():
-    df = get_universe(status="all")
+    df = get_universe(status="active")
     if df.empty:
         print("[Error] Universe empty. Run `refresh` first."); return
     df = run_full_pipeline(df)
@@ -232,7 +282,7 @@ def cmd_q3_watch():
 
 
 def cmd_flip_screen():
-    df = get_universe(status="all")
+    df = get_universe(status="active")
     if df.empty:
         print("[Error] Universe empty. Run `refresh` first."); return
     df = run_full_pipeline(df)
@@ -240,7 +290,7 @@ def cmd_flip_screen():
 
 
 def cmd_alignment_report():
-    df = get_universe(status="all")
+    df = get_universe(status="active")
     if df.empty:
         print("[Error] Universe empty. Run `refresh` first."); return
     df = run_full_pipeline(df)
@@ -614,6 +664,8 @@ def main():
         cmd_alignment_report()
     elif cmd in ("migration log", "migrations"):
         cmd_migration_log()
+    elif cmd in ("universe log", "universe", "membership"):
+        cmd_universe_log()
     elif cmd in ("weekly report", "weekly"):
         from engines.reports import generate_report
         generate_report()
