@@ -1,0 +1,13 @@
+anthropic
+psycopg2-binary
+python-dotenv
+yfinance
+pandas
+numpy
+scipy
+plotly
+watchdog
+requests
+beautifulsoup4
+openpyxl
+python-docx
