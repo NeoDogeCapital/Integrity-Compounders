@@ -248,6 +248,24 @@ def cmd_quad_snapshot():
             print()
 
 
+def cmd_q1_list():
+    df = get_universe(status="active")
+    if df.empty:
+        print("[Error] Universe empty. Run `refresh` first."); return
+    df = run_full_pipeline(df)
+    q1 = df[df["quadrant"] == "Q1"].sort_values("alignment_score", ascending=False)
+    cols = ["ticker", "company", "industry", "alignment_score", "alignment_bucket",
+            "pead_flag", "ev_rank", "earnings_mom_roc", "multiple_roc",
+            "flip_setup_type", "flip_score_pct", "stock_price"]
+    present = [c for c in cols if c in q1.columns]
+    print(f"\n  Q1 FULL COMPOUNDERS — {len(q1)} names (sorted by Alignment Score)\n")
+    print(q1[present].to_string(index=False))
+    strong = q1[q1["pead_flag"] == "Strong PEAD"]
+    if not strong.empty:
+        print(f"\n  ★ Strong PEAD in Q1: {', '.join(strong['ticker'].tolist())}")
+    print()
+
+
 def cmd_q2_list():
     df = get_universe(status="active")
     if df.empty:
@@ -654,6 +672,8 @@ def main():
         cmd_refresh()
     elif cmd in ("quad snapshot", "quad"):
         cmd_quad_snapshot()
+    elif cmd in ("q1 list", "q1"):
+        cmd_q1_list()
     elif cmd in ("q2 list", "q2"):
         cmd_q2_list()
     elif cmd in ("q3 watch", "q3"):
