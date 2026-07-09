@@ -26,3 +26,8 @@ outputs/exports/
 .DS_Store
 Thumbs.db
 desktop.ini
+
+# V12.1: local artifacts (never commit)
+.venv/
+package-lock.json
+*.pre-rebalance-bak
