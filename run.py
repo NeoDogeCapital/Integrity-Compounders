@@ -18,6 +18,7 @@ Usage:
     python run.py monthly rebalance               Monthly rebalance memo with trade summary
     python run.py migration log                   All quad migrations since last snapshot
     python run.py universe log                     Universe screen entries & exits over time
+    python run.py initiation                       L2 trend-filter veto list (V12.1, holds exempt)
     python run.py watch                                   Watch Clippings/ + PDFs/ — auto-analyze on drop
     python run.py analyze PATH [TICKER]                   Analyze a PDF or chart image with Claude vision
     python run.py load portfolio                           Load portfolio.csv, enrich + save
@@ -109,6 +110,105 @@ def cmd_universe_log(limit: int = 60):
     print("-" * 64)
     print(f"  {len(df)} events shown  ·  {n_enter} entries  ·  {n_exit} exits")
     print("=" * 64 + "\n")
+
+
+def passes_initiation_trend_filter(ticker, conn):
+    """
+    L2 trend filter — formalized in V12.1. `conn` is a Supabase (psycopg2) conn.
+    A NEW initiation is vetoed if the name is in a confirmed DOWNTREND.
+    Existing positions are EXEMPT — momentum is TIMING, never thesis: it never
+    forces an exit and never blocks holding/adding to a name you already own.
+    The name stays in the candidate pool; it is simply not actionable for a new
+    buy until the trend turns.
+    """
+    cur = conn.cursor()
+    cur.execute("""
+        SELECT cmd.trend_status, c.in_portfolio
+        FROM companies c
+        JOIN company_market_data cmd ON cmd.ticker = c.ticker
+          AND cmd.data_date = (SELECT MAX(data_date) FROM company_market_data WHERE ticker = c.ticker)
+        WHERE c.ticker = %s
+    """, (ticker.upper(),))
+    row = cur.fetchone()
+    cur.close()
+    if not row:
+        return False, "no data"
+    trend, in_port = row
+    if in_port:
+        return True, "existing position — trend filter exempt"
+    if trend == 'DOWNTREND':
+        return False, "VETO — confirmed downtrend, wait for trend to turn"
+    return True, f"trend OK ({trend or 'n/a'})"
+
+
+def cmd_initiation_check():
+    """List new-initiation eligibility under the V12.1 L2 trend filter.
+    DOWNTREND names cannot be newly initiated; existing holdings are exempt
+    (momentum is timing, not thesis)."""
+    import psycopg2
+    from config.settings import settings
+    conn = psycopg2.connect(settings.DATABASE_URL)
+    cur = conn.cursor()
+    cur.execute("""
+        SELECT c.ticker, c.in_portfolio, cmd.alignment_score_v3
+        FROM companies c JOIN company_market_data cmd ON cmd.ticker = c.ticker
+          AND cmd.data_date = (SELECT MAX(data_date) FROM company_market_data WHERE ticker = c.ticker)
+        WHERE c.active = TRUE AND cmd.trend_status = 'DOWNTREND'
+        ORDER BY cmd.alignment_score_v3 DESC NULLS LAST
+    """)
+    rows = cur.fetchall(); conn.close()
+    print("\n" + "=" * 64)
+    print("  L2 TREND FILTER — new-initiation veto (V12.1)")
+    print("  Momentum is TIMING, not thesis. Existing holdings are exempt.")
+    print("=" * 64)
+    if not rows:
+        print("  No DOWNTREND names — nothing vetoed.\n"); return
+    veto = held = 0
+    for tk, inport, a3 in rows:
+        a = f"{float(a3):.1f}" if a3 is not None else "-"
+        tag = "HELD (exempt — hold/add OK)" if inport else "VETO new buy"
+        held += bool(inport); veto += (not inport)
+        print(f"  {tk:<7} align_v3:{a:<6} {tag}")
+    print("-" * 64)
+    print(f"  {veto} vetoed for new initiation · {held} held (exempt)")
+    print("=" * 64 + "\n")
+
+
+def _print_v121_block(ticker):
+    """V12.1 momentum + three-lens alignment block for the factor card.
+    Reads the Supabase-native momentum / v3 fields (not in local SQLite)."""
+    try:
+        import psycopg2
+        from config.settings import settings
+        conn = psycopg2.connect(settings.DATABASE_URL); cur = conn.cursor()
+        cur.execute("""
+            SELECT trend_status, mom_12_1_risk_adj, extension_flag, dist_200dma_z,
+                   reversal_setup, alignment_score_v3, alignment_bucket_v3,
+                   fv_composite, fv_absolute, fv_historical, fv_universe,
+                   mc_composite, mc_absolute, mc_historical, mc_universe,
+                   val_composite, val_historical, val_universe, history_maturity
+            FROM company_market_data WHERE ticker=%s ORDER BY data_date DESC LIMIT 1
+        """, (ticker.upper(),))
+        r = cur.fetchone(); conn.close()
+    except Exception as e:
+        print(f"  [V12.1 block unavailable: {e}]\n"); return
+    if not r or r[0] is None:
+        print("  MOMENTUM / ALIGNMENT v3 (V12.1): no momentum data "
+              "(needs ≥12mo price history + momentum_engine run)\n"); return
+    (trend, ra, ext, extz, rev, a3, b3, fvc, fva, fvh, fvu,
+     mcc, mca, mch, mcu, vc, vh, vu, mat) = r
+    def s(x, d=1, sign=False):
+        if x is None: return "—"
+        v = float(x); return (f"{v:+.{d}f}" if sign else f"{v:.{d}f}")
+    print("  MOMENTUM (V12.1)")
+    print(f"    Trend:         {trend or '—'}")
+    print(f"    Risk-adj 12-1: {s(ra,2,sign=True)}")
+    print(f"    Extension:     {(ext or '—'):<12} ({s(extz,1,sign=True)}σ from 200-DMA)")
+    print(f"    Reversal:      {'BUY-THE-DIP setup' if rev else '—'}\n")
+    print(f"  ALIGNMENT v3:  {s(a3,0)}  {b3 or '—'}   [history: {mat or '—'}]")
+    print(f"    FV  {s(fvc,0):>4}  (abs {s(fva,0)} · hist {s(fvh,0)} · univ {s(fvu,0)})")
+    print(f"    MC  {s(mcc,0):>4}  (abs {s(mca,0)} · hist {s(mch,0)} · univ {s(mcu,0)})")
+    print(f"    VAL {s(vc,0):>4}  (hist {s(vh,0)} · univ {s(vu,0)})\n")
 
 
 def cmd_status():
@@ -386,6 +486,7 @@ def cmd_who_is(ticker: str):
 ║  Rev Surp Q:  {r.get('rev_surprise_q', float('nan')):>+6.1f}%    EPS Surp Q:    {r.get('eps_surprise_q', float('nan')):>+6.1f}%              ║
 ╚══════════════════════════════════════════════════════════════╝
 """)
+    _print_v121_block(ticker)
 
 
 def cmd_audit():
@@ -686,6 +787,8 @@ def main():
         cmd_migration_log()
     elif cmd in ("universe log", "universe", "membership"):
         cmd_universe_log()
+    elif cmd in ("initiation check", "initiation", "veto"):
+        cmd_initiation_check()
     elif cmd in ("weekly report", "weekly"):
         from engines.reports import generate_report
         generate_report()

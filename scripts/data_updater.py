@@ -486,6 +486,17 @@ def main():
     print("\n[Signal Layer] Loading Fiscal AI signals...")
     load_fiscal_csv_signals(conn)
 
+    # ── V12.1: momentum engine + three-lens alignment (v3) ─────────────────────
+    # Order matters: momentum first (feeds the MC lens), then alignment v3 (reads
+    # QGS from the signal layer above + trend/mom from the momentum engine).
+    sys.path.insert(0, str(Path(__file__).parent))
+    from momentum_engine import compute_momentum
+    from alignment_scorer_v3 import compute_alignment_v3
+    print("\n[V12.1] Momentum signals (risk-adj 12-1, trend, extension, reversal)...")
+    compute_momentum(conn)
+    print("[V12.1] Three-lens alignment score (v3)...")
+    compute_alignment_v3(conn)
+
     conn.close()
 
 

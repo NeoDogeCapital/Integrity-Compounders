@@ -3,13 +3,35 @@ Concentrated equity portfolio · Integrity Wealth Partners · LPL Financial Affi
 GitHub: https://github.com/NeoDogeCapital/Integrity-Compounders
 Dashboard: https://NeoDogeCapital.github.io/Integrity-Compounders/
 
-## Master Rulebook · Compounders v12 · June 2026
+## Master Rulebook · Compounders v12.1 · July 2026
 > This file is read by Claude Code at the start of every session.
 > It summarizes the methodology, data schema, computation rules, and workflow
 > commands for the Integrity Compounders Alpha System.
-> **Canonical reference: [METHODOLOGY_V12.md](METHODOLOGY_V12.md)** — read it for
-> the full nine-stage pipeline, every formula, and the question each layer answers.
-> Do not edit without updating the version header above.
+> **Canonical references: [METHODOLOGY_V12.md](METHODOLOGY_V12.md)** (nine-stage
+> pipeline, every formula) **+ [METHODOLOGY_V12.1.md](METHODOLOGY_V12.1.md)**
+> (momentum revamp + three-lens ranking). Do not edit without updating the version
+> header above.
+
+### What changed in V12.1 (vs V12)
+- **Momentum split into four distinct signals** (`scripts/momentum_engine.py`, from
+  `ic_price_history`): risk-adjusted 12-1 (`mom_12_1_risk_adj`, selection), absolute
+  `trend_status` (UPTREND/NEUTRAL/DOWNTREND), 200-DMA `extension_flag` z-score
+  (OVEREXTENDED/HEALTHY/OVERSOLD), and `reversal_setup` (buy-the-dip). **Momentum is
+  TIMING/CONFIRMATION, never thesis — it never drives an exit.**
+- **Three-lens Alignment Score v3** (`scripts/alignment_scorer_v3.py`), demoting
+  universe rank in favor of absolute grades + own-history:
+  `FV = QGS tier 55% + own-history 30% + universe 15%`;
+  `MC = trend 45% + risk-adj 12-1 own-history 40% + universe 15%`;
+  `VAL = FCF/EV own-range 65% + universe 35%`;
+  `alignment_score_v3 = FV×0.40 + MC×0.25 + VAL×0.35`. Buckets ACCUMULATE ≥65 /
+  HOLD / DISTRIBUTE <35. **`alignment_score_v3` supersedes v2** (v2 retained, not headline).
+- **Cold-start:** `signal_history` accumulates each run; with <3 snapshots the
+  historical lens defaults to the absolute grade (`history_maturity` =
+  COLD_START/BUILDING/MATURE). No backfill — sane from day one.
+- **L2 trend filter** (`passes_initiation_trend_filter`, `run.py initiation`): DOWNTREND
+  vetoes a NEW initiation; existing holdings are EXEMPT.
+- **Coverage caveat:** momentum needs ≥12mo daily prices; names lacking it get
+  neutral-default MC and are not trend-vetoed until `ic_price_history` is backfilled.
 
 ### What changed in V12 (vs V11)
 - **Quad contamination detector:** trailing gross-profit acceleration vs EPS
