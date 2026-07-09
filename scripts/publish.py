@@ -37,10 +37,12 @@ def generate_all():
     import os
     env = {**os.environ, "PYTHONIOENCODING": "utf-8"}
 
+    import sys
+    py = sys.executable  # bare "python" isn't on PATH under a venv; use this interpreter
     steps = [
-        ("Portfolio dashboard",  "python outputs/reports/portfolio_dashboard.py"),
-        ("Watchlist dashboard",  "python outputs/reports/watchlist_dashboard.py"),
-        ("Factor exposure HTML", "python scripts/factor_exposure.py --html"),
+        ("Portfolio dashboard",  f"{py} outputs/reports/portfolio_dashboard.py"),
+        ("Watchlist dashboard",  f"{py} outputs/reports/watchlist_dashboard.py"),
+        ("Factor exposure HTML", f"{py} scripts/factor_exposure.py --html"),
     ]
 
     for label, cmd in steps:
