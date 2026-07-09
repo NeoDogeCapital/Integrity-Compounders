@@ -168,9 +168,11 @@ def cmd_refresh():
 
     # ── Sync to Supabase (non-fatal) ──────────────────────────────────────────
     try:
-        from engines.supabase_sync import sync_universe_to_supabase, pull_enriched_to_local
+        from engines.supabase_sync import (sync_universe_to_supabase, pull_enriched_to_local,
+                                            sync_trade_tables_to_supabase)
         sync_universe_to_supabase(df, data_date)
         pull_enriched_to_local(data_date)
+        sync_trade_tables_to_supabase()   # mirror trade log / holdings / journal to cloud
     except Exception as e:
         print(f"[Supabase] Sync skipped: {e}")
 

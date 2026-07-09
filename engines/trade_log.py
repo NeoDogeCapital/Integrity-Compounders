@@ -453,6 +453,13 @@ def _write_journal_entry(trade_id: int, record: dict):
     )
     print(f"  [Journal] Entry saved: {path.name}")
 
+    # Mirror trade tables to Supabase so trade log / cost basis / journal live in the cloud
+    try:
+        from engines.supabase_sync import sync_trade_tables_to_supabase
+        sync_trade_tables_to_supabase()
+    except Exception as e:
+        print(f"  [Supabase] trade sync skipped: {e}")
+
 
 # ── Confirmation printer ──────────────────────────────────────────────────────
 

@@ -44,9 +44,10 @@ if [ -f .env ]; then
 from engines.database import init_db
 init_db()
 try:
-    from engines.supabase_sync import pull_enriched_to_local
+    from engines.supabase_sync import pull_enriched_to_local, pull_trade_tables_to_local
     pull_enriched_to_local()
-    print("✓ Local cache seeded from Supabase.")
+    pull_trade_tables_to_local()   # trade log, holdings + cost basis, decision journal
+    print("✓ Local cache + trade history seeded from Supabase.")
 except Exception as e:
     print(f"⚠ Pull skipped ({e}). Run `python run.py refresh` once you drop a screener CSV in data/raw/.")
 PY

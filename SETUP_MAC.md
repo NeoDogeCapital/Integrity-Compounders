@@ -5,15 +5,13 @@ local SQLite file (`data/universe.db`) is just a cache. So migrating = clone the
 add your credentials, and the Mac is instantly connected to the same live model your
 Windows box uses. Run a refresh on either device and both see it.
 
-You need to move **three things by hand** (all gitignored):
+You only need to move **two things by hand** (both gitignored):
 1. **`.env`** — your Supabase + Anthropic secrets
 2. **`data/raw/*.csv`** — your latest Fiscal AI screener exports (the newest aren't in git)
-3. **`data/universe.db`** — your **trade log, portfolio share lots + cost basis, and decision
-   journal**. Supabase stores *which* names you hold but NOT cost basis or trade history, so
-   this file must come across or that history starts empty. Drop it into `data/` in the clone;
-   setup will preserve those tables and only refresh the market-data cache on top.
 
-Everything else comes from GitHub + Supabase.
+Everything else — including your **trade log, portfolio cost basis, and decision journal** —
+now lives in Supabase (tables `ic_trade_log`, `ic_portfolio_holdings`, `ic_decision_journal`)
+and is pulled automatically by `setup_mac.sh`. You no longer need to transfer `universe.db`.
 
 ---
 
@@ -101,10 +99,11 @@ python scripts/publish.py --push      # regenerate dashboards → GitHub Pages
 
 - **Supabase is shared state.** A refresh/score on the Mac is immediately visible on
   Windows and vice-versa. No syncing needed beyond git for code.
-- **`universe.db` — the market-data cache is disposable, but the trade tables are not.**
-  The `universe` table rebuilds from Supabase anytime (`python run.py refresh`), but
-  `trade_log`, `portfolio_holdings` (cost basis), and `decision_journal` live ONLY in this
-  file — that's why you transfer it once during migration. Back it up periodically.
+- **`universe.db` is now fully disposable.** Every table rebuilds from Supabase:
+  the market cache via `pull_enriched_to_local`, and `trade_log` / `portfolio_holdings`
+  (cost basis) / `decision_journal` via `pull_trade_tables_to_local`. Trades sync UP to
+  Supabase automatically on every logged trade and every `run.py refresh`, so both devices
+  and the cloud stay in lockstep.
 - **Keep code in sync with git.** `git pull` before you start, `git push` when you commit
   changes, so both machines share the same code + committed docs.
 - **No Windows-only dependencies** in the app — it's pure Python + Node, all cross-platform

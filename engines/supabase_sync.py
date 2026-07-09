@@ -490,3 +490,97 @@ def pull_enriched_to_local(data_date: str | None = None) -> int:
         print(f"[Supabase] pull_enriched failed (non-fatal): {e}")
         import traceback; traceback.print_exc()
         return 0
+
+
+# ── Trade tables (trade_log / portfolio_holdings / decision_journal) ──────────
+# These live in local SQLite by default; mirror them to Supabase so trade history
+# and cost basis survive device migrations. Supabase table names are ic_-prefixed.
+_TRADE_SPEC = {
+    "trade_log": ("ic_trade_log", "trade_id", [
+        "trade_id","logged_at","trade_date","ticker","company","action","shares","price",
+        "dollar_amount","weight_before","weight_after","sleeve","quadrant","quad_provisional",
+        "ev_rank","alignment_score","alignment_bucket","pead_flag","x_axis","y_axis",
+        "fcf_spread_tag","convergence_signals","trigger_type","why_now","thesis","bear_case",
+        "quad_flip_price","add_trigger","trim_trigger","exit_trigger","target_weight","max_weight",
+        "review_date","status","close_date","close_price","total_return","vs_base_case",
+        "thesis_outcome","what_we_learned"]),
+    "portfolio_holdings": ("ic_portfolio_holdings", "id", [
+        "id","snapshot_date","ticker","company","shares","avg_cost","current_price","current_value",
+        "weight_actual","weight_target","weight_drift","sleeve","is_discretionary",
+        "unrealized_pnl_dollar","unrealized_pnl_pct","vs_base_case","migration_warning","quadrant",
+        "quad_name","ev_rank","alignment_score","alignment_bucket","pead_flag","x_axis","y_axis",
+        "fcf_spread_tag","convergence_signals","industry","added_at"]),
+    "decision_journal": ("ic_decision_journal", "id", [
+        "id","logged_at","ticker","event_type","note","auto"]),
+}
+_PG_TYPE = {  # columns not in this map default to text
+    "trade_id":"integer","id":"integer","shares":"numeric","price":"numeric","dollar_amount":"numeric",
+    "weight_before":"numeric","weight_after":"numeric","quad_provisional":"integer","ev_rank":"integer",
+    "alignment_score":"numeric","x_axis":"numeric","y_axis":"numeric","convergence_signals":"integer",
+    "quad_flip_price":"numeric","target_weight":"numeric","max_weight":"numeric","close_price":"numeric",
+    "total_return":"numeric","avg_cost":"numeric","current_price":"numeric","current_value":"numeric",
+    "weight_actual":"numeric","weight_target":"numeric","weight_drift":"numeric","is_discretionary":"integer",
+    "unrealized_pnl_dollar":"numeric","unrealized_pnl_pct":"numeric","migration_warning":"integer","auto":"integer",
+}
+
+
+def _local_db_path():
+    from pathlib import Path
+    return Path(__file__).parent.parent / "data" / "universe.db"
+
+
+def sync_trade_tables_to_supabase() -> None:
+    """Mirror local trade_log / portfolio_holdings / decision_journal → Supabase (upsert by PK)."""
+    import sqlite3
+    from psycopg2.extras import execute_values
+    try:
+        db = sqlite3.connect(_local_db_path()); db.row_factory = sqlite3.Row
+        conn = psycopg2.connect(settings.DATABASE_URL); conn.autocommit = True; cur = conn.cursor()
+        total = 0
+        for local, (pgt, pk, cols) in _TRADE_SPEC.items():
+            ddl = ", ".join(f"{c} {_PG_TYPE.get(c,'text')}" + (" PRIMARY KEY" if c == pk else "") for c in cols)
+            cur.execute(f"CREATE TABLE IF NOT EXISTS {pgt} ({ddl})")
+            try:
+                rows = db.execute(f"SELECT {','.join(cols)} FROM {local}").fetchall()
+            except sqlite3.OperationalError:
+                continue
+            if not rows:
+                continue
+            vals = [tuple(r[c] for c in cols) for r in rows]
+            upd = ", ".join(f"{c}=EXCLUDED.{c}" for c in cols if c != pk)
+            execute_values(cur, f"INSERT INTO {pgt} ({','.join(cols)}) VALUES %s "
+                                f"ON CONFLICT ({pk}) DO UPDATE SET {upd}", vals)
+            total += len(vals)
+        db.close(); cur.close(); conn.close()
+        print(f"[Supabase] trade tables synced ({total} rows across trade_log/holdings/journal)")
+    except Exception as e:
+        print(f"[Supabase] trade-table sync skipped (non-fatal): {e}")
+
+
+def pull_trade_tables_to_local() -> None:
+    """Seed local trade_log / portfolio_holdings / decision_journal from Supabase (fresh device)."""
+    import sqlite3
+    try:
+        conn = psycopg2.connect(settings.DATABASE_URL); cur = conn.cursor()
+        db = sqlite3.connect(_local_db_path())
+        from engines.database import init_db
+        init_db()  # ensures local tables exist
+        total = 0
+        for local, (pgt, pk, cols) in _TRADE_SPEC.items():
+            try:
+                cur.execute(f"SELECT {','.join(cols)} FROM {pgt}")
+            except Exception:
+                conn.rollback(); continue
+            rows = cur.fetchall()
+            if not rows:
+                continue
+            ph = ",".join("?" * len(cols))
+            upd = ", ".join(f"{c}=excluded.{c}" for c in cols if c != pk)
+            for r in rows:
+                db.execute(f"INSERT INTO {local} ({','.join(cols)}) VALUES ({ph}) "
+                           f"ON CONFLICT({pk}) DO UPDATE SET {upd}", [float(v) if hasattr(v,'is_integer') else v for v in r])
+            total += len(rows)
+        db.commit(); db.close(); cur.close(); conn.close()
+        print(f"[Supabase] pulled {total} trade-table rows into local SQLite")
+    except Exception as e:
+        print(f"[Supabase] trade-table pull skipped (non-fatal): {e}")
