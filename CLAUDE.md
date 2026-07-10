@@ -30,8 +30,10 @@ Dashboard: https://NeoDogeCapital.github.io/Integrity-Compounders/
   COLD_START/BUILDING/MATURE). No backfill — sane from day one.
 - **L2 trend filter** (`passes_initiation_trend_filter`, `run.py initiation`): DOWNTREND
   vetoes a NEW initiation; existing holdings are EXEMPT.
-- **Coverage caveat:** momentum needs ≥12mo daily prices; names lacking it get
-  neutral-default MC and are not trend-vetoed until `ic_price_history` is backfilled.
+- **Price history:** `scripts/backfill_price_history.py` loads ~2y daily bars for the
+  full universe (momentum covers 302/304; MOG.A needs the `MOG-A` yfinance symbol).
+  `data_updater.py` refreshes recent bars (`backfill(period="1mo")`) before the
+  momentum stage each run to stay current — full reload: `--period 2y`.
 
 ### What changed in V12 (vs V11)
 - **Quad contamination detector:** trailing gross-profit acceleration vs EPS

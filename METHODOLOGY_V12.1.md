@@ -111,11 +111,15 @@ headline score.
 
 ---
 
-## 7. Known follow-ups
-- **`ic_price_history` coverage:** momentum computes only for names with ≥12mo of daily
-  prices. A one-time historical price backfill (1–2yr) would extend momentum to the full
-  active universe; until then, non-covered names get neutral-default MC and are not
-  trend-vetoed.
+## 7. Price history & follow-ups
+- **`ic_price_history` — backfilled.** `scripts/backfill_price_history.py` loads ~2y of
+  daily OHLCV+AdjClose from yfinance for the full active universe (upsert on
+  ticker+price_date). Momentum now covers **302 of 304** names. Full reload:
+  `python scripts/backfill_price_history.py --period 2y`.
+- **Daily freshness — wired.** `data_updater.py` runs an incremental price refresh
+  (`backfill(period="1mo")`, ≈21 bars/ticker, gap-tolerant) **before** the momentum
+  stage each cycle, so `ic_price_history` stays current cheaply.
+- **Known gap:** `MOG.A` fails under yfinance (needs the `MOG-A` symbol) — 1 name.
 - **HTML dashboards:** the CLI factor card (`who is`) shows the momentum + three-lens
   block; styling the published GitHub Pages dashboards with the same detail is a
   pending visual task.

@@ -39,7 +39,7 @@ def _f(v):
     return None if pd.isna(v) else float(v)
 
 
-def backfill(period=PERIOD, only_missing=False):
+def backfill(period=PERIOD, only_missing=False, limit=None):
     conn = psycopg2.connect(settings.DATABASE_URL)
     cur = conn.cursor()
     cur.execute("SELECT ticker FROM companies WHERE active = TRUE ORDER BY ticker")
@@ -49,6 +49,8 @@ def backfill(period=PERIOD, only_missing=False):
         cur.execute("SELECT ticker FROM ic_price_history GROUP BY ticker HAVING COUNT(*) >= 257")
         have = {r[0] for r in cur.fetchall()}
         tickers = [t for t in tickers if t not in have]
+    if limit:
+        tickers = tickers[:limit]
 
     print(f"Backfilling {len(tickers)} active tickers (period={period})...\n")
     ok = fail = rows_total = 0
@@ -93,5 +95,6 @@ if __name__ == "__main__":
     ap = argparse.ArgumentParser()
     ap.add_argument("--period", default=PERIOD)
     ap.add_argument("--only-missing", action="store_true")
+    ap.add_argument("--limit", type=int, default=None)
     a = ap.parse_args()
-    backfill(a.period, a.only_missing)
+    backfill(a.period, a.only_missing, a.limit)

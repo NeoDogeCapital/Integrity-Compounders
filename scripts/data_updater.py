@@ -490,8 +490,15 @@ def main():
     # Order matters: momentum first (feeds the MC lens), then alignment v3 (reads
     # QGS from the signal layer above + trend/mom from the momentum engine).
     sys.path.insert(0, str(Path(__file__).parent))
+    from backfill_price_history import backfill as refresh_recent_prices
     from momentum_engine import compute_momentum
     from alignment_scorer_v3 import compute_alignment_v3
+    # Prices must be fresh BEFORE momentum. Incremental ~1mo window (≈21 bars/ticker)
+    # is cheap and gap-tolerant (survives holidays / skipped runs); it upserts the
+    # latest bars. For a first-time / full history load run backfill_price_history.py
+    # directly with --period 2y.
+    print("\n[V12.1] Refreshing recent prices into ic_price_history (incremental)...")
+    refresh_recent_prices(period="1mo")
     print("\n[V12.1] Momentum signals (risk-adj 12-1, trend, extension, reversal)...")
     compute_momentum(conn)
     print("[V12.1] Three-lens alignment score (v3)...")
