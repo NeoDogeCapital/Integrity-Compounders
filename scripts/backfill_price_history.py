@@ -39,12 +39,24 @@ def _f(v):
     return None if pd.isna(v) else float(v)
 
 
-def backfill(period=PERIOD, only_missing=False, limit=None):
+# Explicit overrides take priority; otherwise class-share dots → yfinance dashes
+# (DB "MOG.A"/"BRK.B" → yfinance "MOG-A"/"BRK-B"). Rows are always stored under the
+# canonical DB ticker, only the yfinance *request* symbol is mapped.
+YF_SYMBOL_OVERRIDES = {}
+
+def _yf_symbol(ticker: str) -> str:
+    return YF_SYMBOL_OVERRIDES.get(ticker, ticker.replace(".", "-"))
+
+
+def backfill(period=PERIOD, only_missing=False, limit=None, only_ticker=None):
     conn = psycopg2.connect(settings.DATABASE_URL)
     cur = conn.cursor()
     cur.execute("SELECT ticker FROM companies WHERE active = TRUE ORDER BY ticker")
     tickers = [r[0] for r in cur.fetchall()]
 
+    if only_ticker:
+        want = {t.strip().upper() for t in ([only_ticker] if isinstance(only_ticker, str) else only_ticker)}
+        tickers = [t for t in tickers if t.upper() in want]
     if only_missing:
         cur.execute("SELECT ticker FROM ic_price_history GROUP BY ticker HAVING COUNT(*) >= 257")
         have = {r[0] for r in cur.fetchall()}
@@ -58,7 +70,7 @@ def backfill(period=PERIOD, only_missing=False, limit=None):
 
     for i, tk in enumerate(tickers, 1):
         try:
-            df = yf.Ticker(tk).history(period=period, auto_adjust=False)
+            df = yf.Ticker(_yf_symbol(tk)).history(period=period, auto_adjust=False)
             if df is None or df.empty:
                 fail += 1; failed.append(tk); continue
             df = df.reset_index()
@@ -96,5 +108,6 @@ if __name__ == "__main__":
     ap.add_argument("--period", default=PERIOD)
     ap.add_argument("--only-missing", action="store_true")
     ap.add_argument("--limit", type=int, default=None)
+    ap.add_argument("--ticker", default=None, help="Backfill a single ticker (e.g. MOG.A)")
     a = ap.parse_args()
-    backfill(a.period, a.only_missing, a.limit)
+    backfill(a.period, a.only_missing, a.limit, a.ticker)
