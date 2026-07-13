@@ -493,6 +493,7 @@ def main():
     from backfill_price_history import backfill as refresh_recent_prices
     from momentum_engine import compute_momentum
     from alignment_scorer_v3 import compute_alignment_v3
+    from factor_scorer import compute_factor_scores
     # Prices must be fresh BEFORE momentum. Incremental ~1mo window (≈21 bars/ticker)
     # is cheap and gap-tolerant (survives holidays / skipped runs); it upserts the
     # latest bars. For a first-time / full history load run backfill_price_history.py
@@ -503,6 +504,8 @@ def main():
     compute_momentum(conn)
     print("[V12.1] Three-lens alignment score (v3)...")
     compute_alignment_v3(conn)
+    print("[V12.1] Per-name characteristic factor scores (6 factors)...")
+    compute_factor_scores(conn)
 
     conn.close()
 

@@ -34,6 +34,13 @@ Dashboard: https://NeoDogeCapital.github.io/Integrity-Compounders/
   full universe (momentum covers 302/304; MOG.A needs the `MOG-A` yfinance symbol).
   `data_updater.py` refreshes recent bars (`backfill(period="1mo")`) before the
   momentum stage each run to stay current — full reload: `--period 2y`.
+- **Per-name factor scores** (`scripts/factor_scorer.py`, table `factor_scores`): six
+  characteristic factors (Value/Momentum/Quality/Low-Vol/Size/Growth) as winsorized
+  cross-sectional z-scores + universe percentiles + a `factor_profile` label, for every
+  active name (MSCI/Barra descriptor method). View `run.py factor screen [FACTOR]`; also
+  on the `who is` card. Wired into `data_updater` after alignment v3.
+- **Portfolio factor exposure** (`scripts/factor_exposure.py`): six factor-ETF regression
+  betas (bps per 2σ vs SPY) + σ-distance-from-200DMA drift, on the portfolio dashboard.
 
 ### What changed in V12 (vs V11)
 - **Quad contamination detector:** trailing gross-profit acceleration vs EPS

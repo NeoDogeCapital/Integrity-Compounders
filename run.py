@@ -19,6 +19,7 @@ Usage:
     python run.py migration log                   All quad migrations since last snapshot
     python run.py universe log                     Universe screen entries & exits over time
     python run.py initiation                       L2 trend-filter veto list (V12.1, holds exempt)
+    python run.py factor screen [FACTOR]           Per-name factor scores: leaderboard or top-25 by factor
     python run.py watch                                   Watch Clippings/ + PDFs/ — auto-analyze on drop
     python run.py analyze PATH [TICKER]                   Analyze a PDF or chart image with Claude vision
     python run.py load portfolio                           Load portfolio.csv, enrich + save
@@ -209,6 +210,68 @@ def _print_v121_block(ticker):
     print(f"    FV  {s(fvc,0):>4}  (abs {s(fva,0)} · hist {s(fvh,0)} · univ {s(fvu,0)})")
     print(f"    MC  {s(mcc,0):>4}  (abs {s(mca,0)} · hist {s(mch,0)} · univ {s(mcu,0)})")
     print(f"    VAL {s(vc,0):>4}  (hist {s(vh,0)} · univ {s(vu,0)})\n")
+
+
+def _print_factor_scores(ticker):
+    """Six-factor characteristic scores (universe percentile) for the factor card."""
+    try:
+        import psycopg2
+        from config.settings import settings
+        conn = psycopg2.connect(settings.DATABASE_URL); cur = conn.cursor()
+        cur.execute("""SELECT value_pct, momentum_pct, quality_pct, lowvol_pct, size_pct,
+                       growth_pct, factor_profile FROM factor_scores
+                       WHERE ticker=%s ORDER BY data_date DESC LIMIT 1""", (ticker.upper(),))
+        r = cur.fetchone(); conn.close()
+    except Exception:
+        return
+    if not r or all(v is None for v in r[:6]):
+        return
+    def p(v):
+        return f"{float(v):>3.0f}" if v is not None else "  —"
+    print("  FACTOR SCORES (universe percentile)")
+    print(f"    Value {p(r[0])}   Momentum {p(r[1])}   Quality {p(r[2])}")
+    print(f"    LowVol{p(r[3])}   Size     {p(r[4])}   Growth  {p(r[5])}")
+    print(f"    Profile: {r[6] or '—'}\n")
+
+
+def cmd_factor_screen(extra):
+    """Screen the universe by characteristic factor score.
+       `factor screen`         → top 8 per factor (leaderboard)
+       `factor screen value`   → top 25 by that factor (value/momentum/quality/lowvol/size/growth)"""
+    import psycopg2, pandas as pd
+    from config.settings import settings
+    ALIAS = {'value': 'value', 'mom': 'momentum', 'momentum': 'momentum', 'quality': 'quality',
+             'qual': 'quality', 'lowvol': 'lowvol', 'low': 'lowvol', 'lv': 'lowvol',
+             'size': 'size', 'growth': 'growth', 'grw': 'growth'}
+    FACS = ['value', 'momentum', 'quality', 'lowvol', 'size', 'growth']
+    LBL = {'value': 'Value', 'momentum': 'Momentum', 'quality': 'Quality',
+           'lowvol': 'Low Vol', 'size': 'Size', 'growth': 'Growth'}
+    conn = psycopg2.connect(settings.DATABASE_URL); cur = conn.cursor()
+    cur.execute("""SELECT c.ticker, c.in_portfolio, fs.value_pct, fs.momentum_pct, fs.quality_pct,
+                   fs.lowvol_pct, fs.size_pct, fs.growth_pct, fs.factor_profile
+                   FROM factor_scores fs JOIN companies c ON c.ticker=fs.ticker AND c.active=TRUE
+                   WHERE fs.data_date=(SELECT MAX(data_date) FROM factor_scores)""")
+    df = pd.DataFrame(cur.fetchall(),
+                      columns=['ticker', 'held', 'value', 'momentum', 'quality', 'lowvol', 'size', 'growth', 'profile'])
+    conn.close()
+    if df.empty:
+        print("[factor screen] no factor scores yet — run scripts/factor_scorer.py first."); return
+    key = ALIAS.get(extra[0].lower()) if extra else None
+    if key:
+        d = df.sort_values(key, ascending=False).head(25)
+        print(f"\n  TOP 25 by {LBL[key].upper()} factor  (★=held)\n")
+        print(f"  {'Tkr':<6}{'Val':>4}{'Mom':>5}{'Qual':>5}{'LowV':>5}{'Size':>5}{'Grw':>5}   Profile")
+        for _, r in d.iterrows():
+            star = '★' if r['held'] else ' '
+            print(f"  {star}{r['ticker']:<5}{r['value']:>4.0f}{r['momentum']:>5.0f}{r['quality']:>5.0f}"
+                  f"{r['lowvol']:>5.0f}{r['size']:>5.0f}{r['growth']:>5.0f}   {r['profile'] or '—'}")
+    else:
+        print("\n  FACTOR LEADERBOARD — top 8 per factor  (★=held)\n")
+        for f in FACS:
+            top = df.sort_values(f, ascending=False).head(8)
+            names = " ".join(("★" if h else "") + t for t, h in zip(top['ticker'], top['held']))
+            print(f"  {LBL[f]:<9} {names}")
+    print()
 
 
 def cmd_status():
@@ -487,6 +550,7 @@ def cmd_who_is(ticker: str):
 ╚══════════════════════════════════════════════════════════════╝
 """)
     _print_v121_block(ticker)
+    _print_factor_scores(ticker)
 
 
 def cmd_audit():
@@ -789,6 +853,8 @@ def main():
         cmd_universe_log()
     elif cmd in ("initiation check", "initiation", "veto"):
         cmd_initiation_check()
+    elif args[0] in ("factor", "factors"):
+        cmd_factor_screen([a for a in args[1:] if a.lower() != "screen"])
     elif cmd in ("weekly report", "weekly"):
         from engines.reports import generate_report
         generate_report()
