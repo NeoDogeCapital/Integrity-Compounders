@@ -382,6 +382,212 @@ def _generate_html(n, fwd_rev_growth, momentum_3m, momentum_12m, beta, market_ca
 </body></html>"""
 
 
+# ═══════════════════════════════════════════════════════════════════════════
+# PORTFOLIO FACTOR-EXPOSURE CHART ENGINE  (rebuilt · V12.1)
+# Six canonical factor ETFs measured as EXCESS return vs SPY. Per-factor
+# univariate exposure (β + bps per 2σ), σ-distance-from-200DMA drift (same
+# extension methodology as the V12.1 momentum engine), and rolling exposures.
+# Entry point: build_portfolio_factor_charts(conn) -> (dynamic, drift, bps) HTML.
+# ═══════════════════════════════════════════════════════════════════════════
+import pandas as pd
+
+_NAVY = "#1F3A5F"
+FACTOR_ETFS = {'Value': 'VLUE', 'Momentum': 'MTUM', 'Quality': 'QUAL',
+               'Low Vol': 'USMV', 'Size': 'IWM', 'Growth': 'IWF'}
+MARKET_ETF = 'SPY'
+FACTOR_ORDER = list(FACTOR_ETFS)
+FACTOR_DEFINITIONS = FACTOR_ETFS
+FACTOR_START_DATE = '2023-01-01'       # price-load start (200-DMA + z-score warmup)
+ROLLING_WINDOW = 63                    # ~3 months for rolling β
+FACTOR_TOLERANCE_BPS = 50.0
+_SMA_WIN, _Z_WIN = 200, 252
+_FCOLORS = {'Value': '#2a78d6', 'Momentum': '#1baf7a', 'Quality': '#4a3aa7',
+            'Low Vol': '#eda100', 'Size': '#e34948', 'Growth': '#e87ba4'}
+
+
+def _load_prices(conn, tickers, start=FACTOR_START_DATE):
+    cur = conn.cursor()
+    cur.execute("""SELECT ticker, price_date, adj_close FROM ic_price_history
+                   WHERE ticker = ANY(%s) AND price_date >= %s AND adj_close IS NOT NULL
+                   ORDER BY price_date""", (list(tickers), start))
+    rows = cur.fetchall(); cur.close()
+    if not rows:
+        return pd.DataFrame()
+    df = pd.DataFrame(rows, columns=['ticker', 'date', 'px'])
+    df['date'] = pd.to_datetime(df['date']); df['px'] = df['px'].astype(float)
+    return df.pivot(index='date', columns='ticker', values='px').sort_index()
+
+
+def _spy_returns(conn):
+    px = _load_prices(conn, [MARKET_ETF])
+    return px[MARKET_ETF].pct_change() if (not px.empty and MARKET_ETF in px) else pd.Series(dtype=float)
+
+
+def get_portfolio_daily_returns(conn, start_date=FACTOR_START_DATE):
+    cur = conn.cursor()
+    cur.execute("SELECT ticker FROM companies WHERE in_portfolio=TRUE AND active=TRUE")
+    tks = [r[0] for r in cur.fetchall()]; cur.close()
+    px = _load_prices(conn, tks, start_date)
+    if px.empty:
+        return None
+    return px.pct_change().mean(axis=1, skipna=True).dropna()      # equal weight
+
+
+def get_factor_etf_returns(conn, start_date=FACTOR_START_DATE):
+    px = _load_prices(conn, list(FACTOR_ETFS.values()) + [MARKET_ETF], start_date)
+    if px.empty or MARKET_ETF not in px:
+        return pd.DataFrame()
+    rets = px.pct_change(); spy = rets[MARKET_ETF]
+    return pd.DataFrame({f: rets[etf] - spy for f, etf in FACTOR_ETFS.items() if etf in rets}).dropna(how='all')
+
+
+def compute_factor_exposures_bps(port_rets, factor_excess, spy_rets):
+    port_ex = (port_rets - spy_rets).dropna()
+    out = {}
+    for f in FACTOR_ORDER:
+        if f not in factor_excess:
+            continue
+        j = pd.concat([port_ex, factor_excess[f]], axis=1, keys=['p', 'f']).dropna()
+        if len(j) < 60:
+            continue
+        var = j['f'].var()
+        beta = (j['p'].cov(j['f']) / var) if var > 0 else 0.0
+        bps = beta * (2 * j['f'].std()) * 1e4
+        r = j['p'].corr(j['f'])
+        out[f] = {'beta': round(float(beta), 4), 'r_squared': round(float(r * r), 3),
+                  'bps_per_2sigma': round(float(bps), 1),
+                  'within_tolerance': bool(abs(bps) <= FACTOR_TOLERANCE_BPS)}
+    return out
+
+
+def compute_all_factor_drifts(conn, start_display):
+    px = _load_prices(conn, list(FACTOR_ETFS.values()) + [MARKET_ETF])
+    if px.empty or MARKET_ETF not in px:
+        return {}
+    rets = px.pct_change(); spy = rets[MARKET_ETF]
+    drifts = {}
+    for f, etf in FACTOR_ETFS.items():
+        if etf not in rets:
+            continue
+        ex = (rets[etf] - spy).dropna()
+        rs = (1 + ex).cumprod()                              # relative-strength vs market
+        dist = (rs - rs.rolling(_SMA_WIN).mean()) / rs.rolling(_SMA_WIN).mean()
+        z = (dist - dist.rolling(_Z_WIN).mean()) / dist.rolling(_Z_WIN).std()
+        s = pd.DataFrame({'z': z}).dropna()
+        drifts[f] = s[s.index >= pd.to_datetime(start_display)]
+    return drifts
+
+
+def compute_rolling_factor_exposures(port_rets, factor_excess, spy_rets, window=ROLLING_WINDOW):
+    port_ex = (port_rets - spy_rets).dropna()
+    out = {}
+    for f in FACTOR_ORDER:
+        if f not in factor_excess:
+            continue
+        j = pd.concat([port_ex, factor_excess[f]], axis=1, keys=['p', 'f']).dropna()
+        out[f] = (j['p'].rolling(window).cov(j['f']) / j['f'].rolling(window).var()).dropna()
+    return pd.DataFrame(out)
+
+
+def _fig_html(fig, first=False):
+    return fig.to_html(full_html=False, include_plotlyjs=('cdn' if first else False),
+                       config={'displayModeBar': False})
+
+
+def _base_layout(fig, title, height):
+    fig.update_layout(title={'text': title, 'font': {'size': 13, 'color': _NAVY, 'family': 'Calibri'}, 'x': 0.5},
+                      font={'family': 'Calibri', 'color': '#333', 'size': 11},
+                      paper_bgcolor='#ffffff', plot_bgcolor='#f8f9fa',
+                      height=height, margin={'l': 50, 'r': 25, 't': 55, 'b': 40}, showlegend=False)
+    return fig
+
+
+def generate_factor_drift_chart(drifts, first=False):
+    import plotly.graph_objects as go
+    from plotly.subplots import make_subplots
+    facs = [f for f in FACTOR_ORDER if f in drifts and not drifts[f].empty]
+    if not facs:
+        return ""
+    fig = make_subplots(rows=2, cols=3, subplot_titles=facs, vertical_spacing=0.16, horizontal_spacing=0.07)
+    for i, f in enumerate(facs):
+        r, c = i // 3 + 1, i % 3 + 1
+        s = drifts[f]
+        fig.add_trace(go.Scatter(x=s.index, y=s['z'], mode='lines',
+                      line={'color': _FCOLORS.get(f, _NAVY), 'width': 1.5}, fill='tozeroy',
+                      fillcolor='rgba(31,58,95,0.06)'), row=r, col=c)
+        for yb, dash in ((2, 'dot'), (-2, 'dot'), (0, 'solid')):
+            fig.add_hline(y=yb, line={'color': '#C9A84C' if yb else '#888', 'width': 0.8,
+                          'dash': dash}, row=r, col=c)
+        fig.update_yaxes(title_text='σ' if c == 1 else '', range=[-3.2, 3.2], row=r, col=c,
+                         gridcolor='#eee', zeroline=False, tickfont={'size': 9})
+        fig.update_xaxes(gridcolor='#eee', tickfont={'size': 9}, row=r, col=c)
+    for a in fig['layout']['annotations']:
+        a['font'] = {'size': 11, 'color': _NAVY, 'family': 'Calibri'}
+    _base_layout(fig, 'Factor distance from 200-DMA — σ vs own trailing-year trend', 420)
+    return _fig_html(fig, first)
+
+
+def generate_bps_chart(bps, first=False):
+    import plotly.graph_objects as go
+    facs = [f for f in FACTOR_ORDER if f in bps]
+    if not facs:
+        return ""
+    vals = [bps[f]['bps_per_2sigma'] for f in facs]
+    colors = ['#1baf7a' if bps[f]['within_tolerance'] else '#e34948' for f in facs]
+    fig = go.Figure(go.Bar(x=vals, y=facs, orientation='h', marker={'color': colors},
+                    text=[f"{v:+.0f}" for v in vals], textposition='outside',
+                    textfont={'size': 10}))
+    for xb in (FACTOR_TOLERANCE_BPS, -FACTOR_TOLERANCE_BPS):
+        fig.add_vline(x=xb, line={'color': '#C9A84C', 'width': 0.8, 'dash': 'dot'})
+    fig.add_vline(x=0, line={'color': '#888', 'width': 0.8})
+    fig.update_xaxes(title={'text': 'bps of portfolio daily return per 2σ factor move', 'font': {'size': 10}},
+                     gridcolor='#eee', zeroline=False)
+    fig.update_yaxes(categoryorder='array', categoryarray=facs[::-1], tickfont={'size': 11})
+    _base_layout(fig, f'Factor bps per 2σ — six canonical factors (±{FACTOR_TOLERANCE_BPS:.0f} bps tolerance)', 300)
+    return _fig_html(fig, first)
+
+
+def generate_dynamic_factor_chart(rolling, port_rets, first=False):
+    import plotly.graph_objects as go
+    if rolling is None or rolling.empty:
+        return ""
+    fig = go.Figure()
+    for f in FACTOR_ORDER:
+        if f in rolling:
+            fig.add_trace(go.Scatter(x=rolling.index, y=rolling[f], mode='lines', name=f,
+                          line={'color': _FCOLORS.get(f, _NAVY), 'width': 1.6}))
+    fig.add_hline(y=0, line={'color': '#888', 'width': 0.8})
+    fig.update_xaxes(gridcolor='#eee', tickfont={'size': 10})
+    fig.update_yaxes(title={'text': 'rolling β (excess vs SPY)', 'font': {'size': 10}}, gridcolor='#eee',
+                     zeroline=False)
+    _base_layout(fig, f'Rolling {ROLLING_WINDOW}-day factor exposure (β)', 320)
+    fig.update_layout(showlegend=True, legend={'orientation': 'h', 'y': -0.18,
+                      'font': {'size': 10}, 'x': 0.5, 'xanchor': 'center'})
+    return _fig_html(fig, first)
+
+
+def build_portfolio_factor_charts(conn, display_months=12):
+    """Entry point → (dynamic_html, drift_html, bps_html). Raises on missing data."""
+    from datetime import date, timedelta
+    start_display = (date.today() - timedelta(days=int(display_months * 30.5))).isoformat()
+    factor_excess = get_factor_etf_returns(conn)
+    if factor_excess.empty:
+        raise RuntimeError("no factor-ETF returns in ic_price_history")
+    port = get_portfolio_daily_returns(conn)
+    if port is None or len(port) < 60:
+        raise RuntimeError(f"insufficient portfolio return history ({0 if port is None else len(port)} days)")
+    spy = _spy_returns(conn)
+    bps = compute_factor_exposures_bps(port, factor_excess, spy)
+    drifts = compute_all_factor_drifts(conn, start_display)
+    rolling = compute_rolling_factor_exposures(port, factor_excess, spy)
+    if not rolling.empty:
+        rolling = rolling[rolling.index >= pd.to_datetime(start_display)]
+    dynamic_html = generate_dynamic_factor_chart(rolling, port, first=True)
+    drift_html = generate_factor_drift_chart(drifts, first=not bool(dynamic_html))
+    bps_html = generate_bps_chart(bps, first=not bool(dynamic_html) and not bool(drift_html))
+    return dynamic_html, drift_html, bps_html
+
+
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--html',     action='store_true')

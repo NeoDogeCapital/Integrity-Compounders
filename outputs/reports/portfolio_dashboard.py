@@ -30,59 +30,21 @@ def _build_factor_charts() -> tuple[str, str, str]:
     Returns empty strings on failure.
     """
     try:
-        import psycopg2, warnings
+        import warnings
         warnings.filterwarnings("ignore")
-        from scripts.factor_exposure import (
-            get_conn as fe_conn,
-            get_factor_etf_returns, get_portfolio_daily_returns,
-            compute_factor_exposures_bps, compute_sentiment_score,
-            compute_reversal_score, compute_historical_sentiment_reversal,
-            compute_rolling_factor_exposures, compute_all_factor_drifts,
-            generate_dynamic_factor_chart, generate_factor_risk_charts,
-            FACTOR_TOLERANCE_BPS, FACTOR_START_DATE, ROLLING_WINDOW, FACTOR_DEFINITIONS,
-        )
+        from scripts.factor_exposure import get_conn as fe_conn, build_portfolio_factor_charts
         conn2 = fe_conn()
-        cur2  = conn2.cursor()
-        cur2.execute("SELECT ticker FROM companies WHERE in_portfolio=TRUE AND active=TRUE ORDER BY ticker")
-        tickers = [r[0] for r in cur2.fetchall()]
-        cur2.close()
-
-        factor_rets = get_factor_etf_returns(conn2, start_date=FACTOR_START_DATE)
-        if factor_rets.empty:
+        try:
+            dynamic_html, drift_html, bps_html = build_portfolio_factor_charts(conn2)
+        finally:
             conn2.close()
-            return "", "", ""
-
-        port_rets = get_portfolio_daily_returns(conn2, start_date=FACTOR_START_DATE)
-        if port_rets is None or len(port_rets) < 60:
-            conn2.close()
-            return "", "", ""
-
-        factor_exposures_bps = compute_factor_exposures_bps(port_rets, factor_rets)
-        sent_now = compute_sentiment_score(conn2, tickers)
-        rev_now  = compute_reversal_score(conn2, tickers)
-        factor_exposures_bps['Sentiment'] = {
-            'beta': round(sent_now, 4), 'r_squared': None, 'p_value': None,
-            'factor_2sigma': None, 'bps_per_2sigma': round(sent_now * 100, 1),
-            'within_tolerance': abs(sent_now * 100) <= FACTOR_TOLERANCE_BPS,
-        }
-        factor_exposures_bps['Reversal'] = {
-            'beta': round(rev_now, 4), 'r_squared': None, 'p_value': None,
-            'factor_2sigma': None, 'bps_per_2sigma': round(rev_now * 100, 1),
-            'within_tolerance': abs(rev_now * 100) <= FACTOR_TOLERANCE_BPS,
-        }
-
-        sent_hist, rev_hist = compute_historical_sentiment_reversal(conn2, tickers, factor_rets.index)
-        rolling = compute_rolling_factor_exposures(port_rets, factor_rets, sent_hist, rev_hist, window=ROLLING_WINDOW)
-        factor_drifts = compute_all_factor_drifts(port_rets, factor_rets, sent_hist, rev_hist)
-
-        ytd = f"{datetime.today().year}-01-01"
-        dynamic_html           = generate_dynamic_factor_chart(rolling, port_rets, start_date=ytd)
-        drift_html, bps_html   = generate_factor_risk_charts(factor_exposures_bps, factor_drifts, start_date=ytd)
-
-        conn2.close()
+        if not (dynamic_html or drift_html or bps_html):
+            print("  [factor charts] engine returned no charts")
         return dynamic_html, drift_html, bps_html
     except Exception as e:
-        print(f"  [factor charts] {e}")
+        import traceback
+        print(f"  [factor charts] FAILED: {e}")
+        traceback.print_exc()
         return "", "", ""
 
 
@@ -126,7 +88,7 @@ def _factor_summary_section(cur, navy) -> str:
     if dynamic_html:
         charts_block += f"""
       <div style="margin-top:20px;border-top:1px solid #e5e7eb;padding-top:16px">
-        <div style="font-size:11px;font-weight:700;color:{navy};text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">Portfolio Return vs. Factor Exposure</div>
+        <div style="font-size:11px;font-weight:700;color:{navy};text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">Rolling Factor Exposure (β vs SPY)</div>
         <div style="background:#fff;border-radius:8px">{dynamic_html}</div>
       </div>"""
     if drift_html:
