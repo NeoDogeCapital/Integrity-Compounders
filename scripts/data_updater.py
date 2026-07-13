@@ -420,6 +420,44 @@ def print_sector_check(conn):
         print(f"  {str(sector):<38} {pct_f:>5.1f}%  {flag}")
 
 
+def compute_quad(conn):
+    """Recompute the stock-level Quad from the latest screener CSV using the model's
+    own engines/quad functions, and persist quadrant/ev_rank/axes to Supabase's latest
+    company_market_data rows. data_updater doesn't push the trailing-EPS CAGR the quad
+    needs, so without this the quad goes stale/blank on daily runs. Guaranteed identical
+    to `run.py refresh`'s quad (same code path)."""
+    import pandas as pd
+    from engines.database import load_csv
+    from engines.quad import compute_axes, _assign_quadrant, EV_RANK
+    from engines.screener import EPS_CAGR_CAP
+
+    raw = ROOT / "data" / "raw"
+    csvs = sorted(raw.glob("Screener_Results_*.csv"), key=lambda p: p.stat().st_mtime, reverse=True)
+    if not csvs:
+        print("  [quad] no screener CSV in data/raw/ — skipped"); return
+    df = load_csv(csvs[0])
+    df["fwd_eps_cagr_capped"] = df["fwd_eps_cagr"].clip(upper=EPS_CAGR_CAP)   # screener's cap rule
+    df = compute_axes(df)
+
+    cur = conn.cursor()
+    written = 0
+    dist = {}
+    for _, r in df.iterrows():
+        quad = _assign_quadrant(r.get("x_rev_mom"), r.get("y_eps_mom"))
+        if quad == "N/A":
+            continue
+        x = None if pd.isna(r["x_rev_mom"]) else round(float(r["x_rev_mom"]), 4)
+        y = None if pd.isna(r["y_eps_mom"]) else round(float(r["y_eps_mom"]), 4)
+        cur.execute("""
+            UPDATE company_market_data SET quadrant=%s, ev_rank=%s, x_rev_mom=%s, x_eps_mom=%s
+            WHERE ticker=%s AND data_date=(SELECT MAX(data_date) FROM company_market_data WHERE ticker=%s)
+        """, (quad, int(EV_RANK.get(quad, 99)), x, y, r["ticker"], r["ticker"]))
+        written += cur.rowcount
+        dist[quad] = dist.get(quad, 0) + 1
+    conn.commit(); cur.close()
+    print(f"  ✅ Quad computed for {written} names  {dict(sorted(dist.items()))}")
+
+
 # ── Main ───────────────────────────────────────────────────────────────────────
 
 def main():
@@ -506,6 +544,8 @@ def main():
     compute_alignment_v3(conn)
     print("[V12.1] Per-name characteristic factor scores (6 factors)...")
     compute_factor_scores(conn)
+    print("[V12.1] Stock-level Quad (from latest screener) → Supabase...")
+    compute_quad(conn)
 
     conn.close()
 
