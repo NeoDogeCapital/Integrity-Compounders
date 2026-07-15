@@ -335,6 +335,19 @@ _MIGRATION_COLUMNS = {
 }
 
 
+# History tables keyed one-row-per-(ticker, data_date). Both writers used to append
+# blindly on every run — quad_history via to_sql(if_exists="append"), migration_log
+# via a bare INSERT — so re-running `refresh` on the same screener silently
+# multiplied the record (quad_history reached 2,220 rows for 296 real ones). Same
+# defect class as ic_analytics_history (migration 014). Dedupe keeps the newest row
+# per key; the unique index makes the upserts below enforceable.
+_HISTORY_KEYS = {
+    "quad_history":            ("ticker", "data_date"),
+    "migration_log":           ("ticker", "data_date"),
+    "universe_membership_log": ("ticker", "data_date", "event"),
+}
+
+
 def init_db():
     with get_conn() as conn:
         conn.executescript(SCHEMA)
@@ -342,6 +355,18 @@ def init_db():
         for col, typ in _MIGRATION_COLUMNS.items():
             if col not in existing:
                 conn.execute(f"ALTER TABLE universe ADD COLUMN {col} {typ}")
+        for tbl, key in _HISTORY_KEYS.items():
+            try:
+                k = ", ".join(key)
+                dupes = conn.execute(
+                    f"SELECT COUNT(*) - COUNT(DISTINCT {'||'.join(key)}) FROM {tbl}").fetchone()[0]
+                if dupes:
+                    conn.execute(f"DELETE FROM {tbl} WHERE id NOT IN "
+                                 f"(SELECT MAX(id) FROM {tbl} GROUP BY {k})")
+                    print(f"[DB] {tbl}: removed {dupes} duplicate rows (append-per-run legacy)")
+                conn.execute(f"CREATE UNIQUE INDEX IF NOT EXISTS ux_{tbl}_key ON {tbl} ({k})")
+            except sqlite3.OperationalError:
+                pass
     print(f"[DB] Initialized: {DB_PATH}")
 
 
@@ -550,12 +575,20 @@ def get_last_snapshot_date() -> str | None:
 def log_migration(ticker: str, company: str, from_quad: str, to_quad: str,
                   severity: str, alignment_score: float, pead_flag: str,
                   x_delta: float, y_delta: float, data_date: str, note: str = ""):
+    # One row per (ticker, data_date): a bare INSERT re-logged the same event on
+    # every refresh of the same screener.
     with get_conn() as conn:
         conn.execute(
             """INSERT INTO migration_log
                (logged_at, data_date, ticker, company, from_quad, to_quad,
                 severity, alignment_score, pead_flag, x_delta, y_delta, note)
-               VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""",
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
+               ON CONFLICT(ticker, data_date) DO UPDATE SET
+                 logged_at=excluded.logged_at, company=excluded.company,
+                 from_quad=excluded.from_quad, to_quad=excluded.to_quad,
+                 severity=excluded.severity, alignment_score=excluded.alignment_score,
+                 pead_flag=excluded.pead_flag, x_delta=excluded.x_delta,
+                 y_delta=excluded.y_delta, note=excluded.note""",
             [datetime.utcnow().isoformat(), data_date, ticker, company,
              from_quad, to_quad, severity, alignment_score, pead_flag,
              x_delta, y_delta, note]
@@ -578,8 +611,16 @@ def save_quad_history(df: pd.DataFrame, data_date: str):
     present = [c for c in cols if c in df.columns]
     snap = df[present].copy()
     snap["data_date"] = data_date
+    # One row per (ticker, data_date). to_sql(if_exists="append") re-inserted the
+    # whole snapshot on every run — re-running refresh must correct the day's row,
+    # not stack another copy of it.
+    icols = list(snap.columns)
+    upd = ", ".join(f"{c}=excluded.{c}" for c in icols if c not in ("ticker", "data_date"))
+    sql = (f"INSERT INTO quad_history ({','.join(icols)}) VALUES ({','.join('?'*len(icols))}) "
+           f"ON CONFLICT(ticker, data_date) DO UPDATE SET {upd}")
+    rows = [tuple(_sqlite_scalar(v) for v in r) for r in snap.itertuples(index=False, name=None)]
     with get_conn() as conn:
-        snap.to_sql("quad_history", conn, if_exists="append", index=False)
+        conn.executemany(sql, rows)
     print(f"[DB] Saved {len(snap)} rows to quad_history.")
 
 

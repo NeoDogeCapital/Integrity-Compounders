@@ -518,13 +518,22 @@ _TRADE_SPEC = {
         "fcf_spread_tag","convergence_signals","industry","added_at"]),
     "decision_journal": ("ic_decision_journal", "id", [
         "id","logged_at","ticker","event_type","note","auto"]),
+    # Screen entries/exits. The only local history with no cloud counterpart at
+    # all — quad_history and migration_log look local-only too, but cloud already
+    # carries quadrant per data_date in company_market_data (a strict superset),
+    # and neither migration log holds a single genuine migration (every row is a
+    # from_quad=NULL first appearance). This one is real, unique, and would die
+    # with the laptop.
+    "universe_membership_log": ("ic_universe_membership_log", "id", [
+        "id","logged_at","data_date","ticker","event","is_holding","note"]),
 }
 # Tables whose local `id` is a SQLite autoincrement that has NO relationship to the
 # cloud id space. Syncing those on `id` silently OVERWRITES unrelated cloud rows
 # (this destroyed a journal entry on 2026-07-15). These sync on a natural key
 # instead; each side keeps its own id.
 _NATURAL_KEY = {
-    "decision_journal": ["logged_at", "ticker", "event_type"],
+    "decision_journal":        ["logged_at", "ticker", "event_type"],
+    "universe_membership_log": ["data_date", "ticker", "event"],
 }
 
 
@@ -548,7 +557,7 @@ def _nat_target(nat):
 
 
 _PG_TYPE = {  # columns not in this map default to text
-    "trade_id":"integer","id":"integer","shares":"numeric","price":"numeric","dollar_amount":"numeric",
+    "trade_id":"integer","id":"integer","is_holding":"integer","shares":"numeric","price":"numeric","dollar_amount":"numeric",
     "weight_before":"numeric","weight_after":"numeric","quad_provisional":"integer","ev_rank":"integer",
     "alignment_score":"numeric","x_axis":"numeric","y_axis":"numeric","convergence_signals":"integer",
     "quad_flip_price":"numeric","target_weight":"numeric","max_weight":"numeric","close_price":"numeric",
@@ -600,7 +609,7 @@ def sync_trade_tables_to_supabase() -> None:
                                     f"ON CONFLICT ({pk}) DO UPDATE SET {upd}", vals)
             total += len(rows)
         db.close(); cur.close(); conn.close()
-        print(f"[Supabase] trade tables synced ({total} rows across trade_log/holdings/journal)")
+        print(f"[Supabase] local tables synced ({total} rows across trade_log/holdings/journal/membership)")
     except Exception as e:
         print(f"[Supabase] trade-table sync skipped (non-fatal): {e}")
 
@@ -644,6 +653,6 @@ def pull_trade_tables_to_local() -> None:
                            f"ON CONFLICT({pk}) DO UPDATE SET {upd}", [_sqlite_bind(v) for v in r])
             total += len(rows)
         db.commit(); db.close(); cur.close(); conn.close()
-        print(f"[Supabase] pulled {total} trade-table rows into local SQLite")
+        print(f"[Supabase] pulled {total} rows into local SQLite")
     except Exception as e:
         print(f"[Supabase] trade-table pull skipped (non-fatal): {e}")

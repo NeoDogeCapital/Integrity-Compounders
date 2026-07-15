@@ -151,6 +151,32 @@ def run():
     except Exception as e:
         _add(WARN, "local universe.db", str(e)[:50])
 
+    # ── history-table integrity ──────────────────────────────────────────────
+    # "Append instead of upsert" has now been found three times: ic_analytics_history
+    # (ON CONFLICT DO NOTHING against a non-existent constraint), quad_history
+    # (to_sql if_exists="append") and migration_log (bare INSERT). Each silently
+    # multiplied a time series on every re-run and none announced itself. Assert the
+    # keys instead of waiting to notice the fourth.
+    try:
+        _l = sqlite3.connect(ROOT / "data/universe.db")
+        for tbl, key in (("quad_history", "ticker, data_date"),
+                         ("migration_log", "ticker, data_date"),
+                         ("universe_membership_log", "ticker, data_date, event")):
+            tot = _l.execute(f"SELECT COUNT(*) FROM {tbl}").fetchone()[0]
+            uq  = _l.execute(f"SELECT COUNT(*) FROM (SELECT {key} FROM {tbl} GROUP BY {key})").fetchone()[0]
+            if tot == uq:
+                _add(OK, f"{tbl} keys", f"{tot} rows, 1 per ({key})")
+            else:
+                _add(FAIL, f"{tbl} keys", f"{tot} rows but only {uq} unique ({key}) — appending, not upserting")
+        _l.close()
+    except Exception as e:
+        _add(WARN, "history integrity", str(e)[:50])
+
+    cur.execute("SELECT COUNT(*), COUNT(DISTINCT run_date) FROM ic_analytics_history")
+    tot, uq = cur.fetchone()
+    _add(OK if tot == uq else FAIL, "ic_analytics_history keys",
+         f"{tot} rows, {uq} distinct run_date" + ("" if tot == uq else " — duplicate snapshots"))
+
     c.close()
 
     # ── report ───────────────────────────────────────────────────────────────
