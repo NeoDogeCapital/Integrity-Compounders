@@ -18,6 +18,7 @@ Usage:
     python run.py monthly rebalance               Monthly rebalance memo with trade summary
     python run.py migration log                   All quad migrations since last snapshot
     python run.py universe log                     Universe screen entries & exits over time
+    python run.py universe review [--apply]        Two-strike removal rule (rulebook §4); dry run by default
     python run.py initiation                       L2 trend-filter veto list (V12.1, holds exempt)
     python run.py factor screen [FACTOR]           Per-name factor scores: leaderboard or top-25 by factor
     python run.py health                           Pipeline health: freshness, engine outputs, book sync
@@ -854,6 +855,12 @@ def main():
         cmd_universe_log()
     elif cmd in ("initiation check", "initiation", "veto"):
         cmd_initiation_check()
+    elif args[0] == "universe" and len(args) > 1 and args[1] in ("review", "maintenance"):
+        import subprocess
+        cmd = [sys.executable, str(ROOT / "scripts" / "universe_maintenance.py")]
+        if "--apply" in args:
+            cmd.append("--apply")
+        subprocess.run(cmd)
     elif args[0] in ("health", "healthcheck", "doctor"):
         import subprocess
         subprocess.run([sys.executable, str(ROOT / "scripts" / "health_check.py")])
