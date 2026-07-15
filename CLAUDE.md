@@ -126,6 +126,13 @@ python scripts/synthesize.py --html
 ```
 python scripts/company_scorer.py --quarterly
 python scripts/factor_exposure.py --snapshot --html
+python run.py universe review            # two-strike rule (§4) — dry run
+python run.py universe review --apply    # apply removals + journal them
+```
+
+## ANY TIME
+```
+python run.py health                     # freshness / engine outputs / book sync
 ```
 
 ## QUARTERLY
@@ -470,6 +477,8 @@ When Niko types any of the following, I execute the corresponding workflow:
 | `migration log` | Show all quad changes since last snapshot with severity labels |
 | `journal [note]` | Append a timestamped decision note to journal/decisions/ |
 | `audit` | Compare current universe to last month; flag additions, removals, migrations |
+| `universe review [--apply]` | Two-strike removal rule (§4): names absent from the last two **monthly** screens are removed; one strike = watch-only. Holdings and names with insufficient screen history are never removed; re-entry reactivates. Dry run unless `--apply`. |
+| `health` | Pipeline health: data freshness, engine coverage, book sync, journal mirroring. Exit 1 on any FAIL. |
 | `who is [TICKER]` | Full factor card for a single name: all metrics, quad, pod, scores |
 
 ---
