@@ -549,6 +549,19 @@ def main():
 
     conn.close()
 
+    # ── Analytics layer ────────────────────────────────────────────────────────
+    # Last, and on its own connection (needs autocommit; everything above is
+    # transactional). Depends on the price refresh earlier in this run, so the
+    # return series and metrics stay current on the DAILY workflow instead of
+    # only advancing when someone happens to run scripts/publish.py.
+    # HTML stays a publish concern.
+    print("\n[Analytics] Return series + risk/performance metrics...")
+    try:
+        from ic_analytics import run_analytics
+        run_analytics()
+    except Exception as e:
+        print(f"  ⚠️  analytics step failed: {e}")
+
 
 def load_fiscal_csv_signals(conn):
     """

@@ -361,20 +361,20 @@ def cmd_refresh():
                 )
 
     upsert_universe(df)
-    deactivate_absent(df["ticker"])
+    holdings = _load_holding_tickers()
+    deactivate_absent(df["ticker"], holdings=holdings)
 
     # Track universe churn (names entering / exiting the screen) over time.
     curr_t = {str(t).strip().upper() for t in df["ticker"]}
     prev_t = ({str(t).strip().upper() for t in previous["ticker"]}
               if previous is not None and "ticker" in previous.columns else set())
-    holdings = _load_holding_tickers()
     churn = log_universe_membership(curr_t - prev_t, prev_t - curr_t, data_date, holdings)
     if churn["entered"] or churn["exited"]:
         print(f"[Universe] churn vs prior screen: +{len(churn['entered'])} entered / "
               f"-{len(churn['exited'])} exited")
     if churn["held_exits"]:
         print(f"  ⚠️  HOLDING(S) that fell OUT of the screener: "
-              f"{', '.join(churn['held_exits'])} — still held, now inactive. Review.")
+              f"{', '.join(churn['held_exits'])} — kept active (we own them). Review.")
 
     save_quad_history(df, data_date)
     print_screen_summary(df)

@@ -81,20 +81,43 @@ def run():
     _fresh("factor scores", cur.fetchone()[0])
 
     # ── engine outputs populated on the latest snapshot ──────────────────────
-    checks = [("quad", "quadrant"), ("momentum", "trend_status"),
-              ("alignment v3", "alignment_score_v3"), ("QGS", "quality_growth_score")]
-    cur.execute("""SELECT COUNT(*) FROM companies c JOIN company_market_data cmd ON cmd.ticker=c.ticker
+    # Denominator matters. quad and QGS are computed FROM the Fiscal AI screener
+    # CSV, so a tracked name outside the current screen structurally cannot have
+    # one — scoring them against all 304 active names reads a permanent 91% and
+    # quietly normalises the shortfall, which is how a real engine failure would
+    # slip through. Those two are scored against screen membership (reachable
+    # 100%); momentum and alignment run off price history / cloud data, so every
+    # active name is genuinely in scope for them.
+    # Ground truth for "in the current screen" is the screener export itself —
+    # not universe_status, which by design also keeps held names active after
+    # they drop out of the screen (those genuinely have no quad/QGS inputs and
+    # would otherwise read as engine failures).
+    try:
+        _csvs = sorted((ROOT / "data/raw").glob("Screener_Results_*.csv"),
+                       key=lambda p: p.stat().st_mtime, reverse=True)
+        with open(_csvs[0]) as _f:
+            in_screen = {(r.get("Ticker") or r.get("ticker") or "").strip().upper()
+                         for r in csv.DictReader(_f)} - {""}
+    except Exception:
+        in_screen = set()
+
+    cur.execute("""SELECT c.ticker, cmd.quadrant, cmd.trend_status, cmd.alignment_score_v3,
+                          cmd.quality_growth_score
+        FROM companies c JOIN company_market_data cmd ON cmd.ticker=c.ticker
         AND cmd.data_date=(SELECT MAX(data_date) FROM company_market_data WHERE ticker=c.ticker)
         WHERE c.active=TRUE""")
-    active = cur.fetchone()[0] or 1
-    for label, col in checks:
-        cur.execute(f"""SELECT COUNT({col}) FROM companies c JOIN company_market_data cmd ON cmd.ticker=c.ticker
-            AND cmd.data_date=(SELECT MAX(data_date) FROM company_market_data WHERE ticker=c.ticker)
-            WHERE c.active=TRUE""")
-        n = cur.fetchone()[0]
-        pct = n / active
-        st = OK if pct >= 0.85 else (WARN if pct >= 0.5 else FAIL)
-        _add(st, f"{label} populated", f"{n}/{active} active names ({pct:.0%})")
+    rows = cur.fetchall()
+    active = len(rows) or 1
+
+    for label, i, scoped in [("quad", 1, True), ("momentum", 2, False),
+                             ("alignment v3", 3, False), ("QGS", 4, True)]:
+        pool = [r for r in rows if (not scoped or not in_screen or r[0].upper() in in_screen)]
+        den  = len(pool) or 1
+        n    = sum(1 for r in pool if r[i] is not None)
+        pct  = n / den
+        st   = OK if pct >= 0.97 else (WARN if pct >= 0.85 else FAIL)
+        scope = "in-screen" if scoped and in_screen else "active"
+        _add(st, f"{label} populated", f"{n}/{den} {scope} names ({pct:.0%})")
 
     # ── book in sync ─────────────────────────────────────────────────────────
     book = [r["ticker"].strip().upper() for r in csv.DictReader(open(ROOT / "data/raw/portfolio.csv"))]

@@ -469,16 +469,26 @@ def upsert_universe(df: pd.DataFrame):
     print(f"[DB] Upserted {len(df)} rows into universe table ({len(cols)} columns).")
 
 
-def deactivate_absent(current_tickers) -> int:
+def deactivate_absent(current_tickers, holdings=None) -> int:
     """Mark active universe rows whose ticker is not in the current screen as
     'inactive', so read commands reflect only the live universe. Rows are kept
     (not deleted) for auditability; quad_history and Supabase retain full history.
+
+    A name we HOLD is never deactivated. Read commands filter on
+    universe_status='active', so deactivating a holding hides a live position
+    from our own reports. A screen exit is a review trigger, not grounds for
+    going blind to it — and per the rulebook a single failure is watch-only,
+    with removal requiring two consecutive monthly fails. Held exits are surfaced
+    by the membership log instead (`run.py universe log`).
     Returns the number of names deactivated."""
     current = {str(t).strip().upper() for t in current_tickers}
+    held    = {str(t).strip().upper() for t in (holdings or [])}
     with get_conn() as conn:
         active = [r[0] for r in conn.execute(
             "SELECT ticker FROM universe WHERE universe_status = 'active'")]
-        stale = sorted(t for t in active if str(t).strip().upper() not in current)
+        stale = sorted(t for t in active
+                       if str(t).strip().upper() not in current
+                       and str(t).strip().upper() not in held)
         for t in stale:
             conn.execute(
                 "UPDATE universe SET universe_status = 'inactive' WHERE ticker = ?", [t])

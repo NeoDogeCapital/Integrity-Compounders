@@ -278,10 +278,13 @@ def trade_stats(conn):
         al = np.mean([r["ret"] for r in l]) if l else 0.0
         return dict(n=len(rs), ba=len(w) / len(rs), avg_win=aw, avg_loss=al,
                     slug=(aw / abs(al)) if l and al else np.nan,
+                    # win/loss ratio counts trades; slugging weighs their size.
+                    wl=(len(w) / len(l)) if l else np.nan,
                     expectancy=(len(w) / len(rs)) * aw + (len(l) / len(rs)) * al)
     cohorts = {d: agg([r for r in rows if r["entry"] == d]) for d in sorted({r["entry"] for r in rows})}
     return dict(all=agg(rows), closed=agg([r for r in rows if r["closed"]]),
-                open=agg([r for r in rows if not r["closed"]]), cohorts=cohorts, rows=rows)
+                open=agg([r for r in rows if not r["closed"]]), cohorts=cohorts, rows=rows,
+                n_holdings=len([x for x in alloc[snaps[-1]] if x != "CASH"]) if snaps else None)
 
 
 def _py(v):
@@ -308,15 +311,30 @@ def persist(conn, m, t):
        beta_to_spy, batting_average, up_capture, down_capture, updown_capture_ratio,
        win_loss_ratio, slugging_pct, num_holdings)
       VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
-      ON CONFLICT DO NOTHING""",
+      ON CONFLICT (run_date) DO UPDATE SET
+        total_return_inception=EXCLUDED.total_return_inception, annualized_return=EXCLUDED.annualized_return,
+        spy_total_return=EXCLUDED.spy_total_return, spy_annualized=EXCLUDED.spy_annualized,
+        excess_return_inception=EXCLUDED.excess_return_inception, std_dev_annualized=EXCLUDED.std_dev_annualized,
+        downside_deviation=EXCLUDED.downside_deviation, max_drawdown_ever=EXCLUDED.max_drawdown_ever,
+        max_drawdown_start=EXCLUDED.max_drawdown_start, max_drawdown_end=EXCLUDED.max_drawdown_end,
+        max_drawdown_duration_days=EXCLUDED.max_drawdown_duration_days, var_95=EXCLUDED.var_95,
+        var_99=EXCLUDED.var_99, cvar_95=EXCLUDED.cvar_95, sharpe_ratio=EXCLUDED.sharpe_ratio,
+        sortino_ratio=EXCLUDED.sortino_ratio, calmar_ratio=EXCLUDED.calmar_ratio,
+        information_ratio=EXCLUDED.information_ratio, treynor_ratio=EXCLUDED.treynor_ratio,
+        omega_ratio=EXCLUDED.omega_ratio, beta_to_spy=EXCLUDED.beta_to_spy,
+        batting_average=EXCLUDED.batting_average, up_capture=EXCLUDED.up_capture,
+        down_capture=EXCLUDED.down_capture, updown_capture_ratio=EXCLUDED.updown_capture_ratio,
+        win_loss_ratio=EXCLUDED.win_loss_ratio, slugging_pct=EXCLUDED.slugging_pct,
+        num_holdings=EXCLUDED.num_holdings""",
       (date.today(), m['total_return'], m['cagr'], m['spy_total'], m['spy_cagr'], m['excess'],
        m['vol'], m['downside_dev'], m['max_dd'], m['dd_start'], m['dd_end'], m['dd_days'],
        m['var95'], m['var99'], m['cvar95'], m['sharpe'], m['sortino'], m['calmar'],
        m['info_ratio'], m['treynor'], m['omega'], m['beta'],
        _py(t['all']['ba']) if t['all'] else None, m['up_capture'], m['down_capture'], m['updown'],
-       _py(t['all']['slug']) if t['all'] else None, _py(t['all']['slug']) if t['all'] else None, None))
+       _py(t['all']['wl']) if t['all'] else None, _py(t['all']['slug']) if t['all'] else None,
+       t.get('n_holdings')))
     cur.close()
-    print("  ic_analytics_history: snapshot appended")
+    print("  ic_analytics_history: snapshot upserted for today")
 
 
 # ── dashboard ────────────────────────────────────────────────────────────────
@@ -463,22 +481,38 @@ convention would give ~9 data points). Batting average and slugging are <b>trade
     print(f"  📄  docs/analytics.html ({len(html):,} bytes)")
 
 
+def run_analytics(html: bool = False, conn=None):
+    """Compute + persist the analytics layer; optionally rebuild the dashboard.
+
+    Callable from data_updater so the daily run keeps the return series and
+    metrics current. Opens its own connection by default: this module needs
+    autocommit, while data_updater runs transactional (autocommit=False).
+    """
+    own = conn is None
+    if own:
+        conn = get_conn()
+    try:
+        rf, rf_mean = load_rf()
+        extend_daily_returns(conn, rf)
+        df = load_series(conn)
+        m  = compute_metrics(df, rf)
+        t  = trade_stats(conn)
+        r  = rolling_series(df, rf)
+        persist(conn, m, t)
+        print(f"  metrics: total {m['total_return']:.2%} · sharpe {m['sharpe']:.2f} · alpha {m['alpha']:+.2%} · maxDD {m['max_dd']:.2%}")
+        if html:
+            build_html(df, m, r, t, rf_mean)
+        return m
+    finally:
+        if own:
+            conn.close()
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--html", action="store_true")
     a = ap.parse_args()
-    conn = get_conn()
-    rf, rf_mean = load_rf()
-    extend_daily_returns(conn, rf)
-    df = load_series(conn)
-    m = compute_metrics(df, rf)
-    t = trade_stats(conn)
-    r = rolling_series(df, rf)
-    persist(conn, m, t)
-    print(f"  metrics: total {m['total_return']:.2%} · sharpe {m['sharpe']:.2f} · alpha {m['alpha']:+.2%} · maxDD {m['max_dd']:.2%}")
-    if a.html:
-        build_html(df, m, r, t, rf_mean)
-    conn.close()
+    run_analytics(html=a.html)
 
 
 if __name__ == "__main__":
