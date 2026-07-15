@@ -1,0 +1,252 @@
+Ticker,Name,Weight,Date
+CASH,CASH,0.08,2019-09-13
+NVDA,NVIDIA Corporation,0.04,2019-09-13
+GOOG,Alphabet Inc.,0.04,2019-09-13
+NFLX,Netflix Inc.,0.04,2019-09-13
+VST,Vistra Corp.,0.04,2019-09-13
+ATI,ATI Inc.,0.04,2019-09-13
+LDOS,Leidos Holdings Inc.,0.04,2019-09-13
+WAB,Westinghouse Air Brake Technologies Corporation,0.04,2019-09-13
+BKR,Baker Hughes Company,0.04,2019-09-13
+CRH,CRH plc,0.04,2019-09-13
+KLAC,KLA Corporation,0.04,2019-09-13
+STRL,Sterling Infrastructure Inc.,0.04,2019-09-13
+AWI,Armstrong World Industries Inc.,0.04,2019-09-13
+HIMS,Hims & Hers Health Inc.,0.04,2019-09-13
+ANET,Arista Networks Inc.,0.04,2019-09-13
+MPWR,Monolithic Power Systems Inc.,0.04,2019-09-13
+AVGO,Broadcom Inc.,0.04,2019-09-13
+LLY,Eli Lilly and Company,0.04,2019-09-13
+TMDX,TransMedics Group Inc.,0.04,2019-09-13
+ISRG,Intuitive Surgical Inc.,0.04,2019-09-13
+EBAY,eBay Inc.,0.04,2019-09-13
+LRCX,Lam Research Corporation,0.04,2019-09-13
+GD,General Dynamics Corporation,0.04,2019-09-13
+ORCL,Oracle Corporation,0.04,2019-09-13
+CASH,CASH,0.07,2025-10-10
+NVDA,NVIDIA Corporation,0.04,2025-10-10
+GOOG,Alphabet Inc.,0.04,2025-10-10
+NFLX,Netflix Inc.,0.04,2025-10-10
+VST,Vistra Corp.,0.04,2025-10-10
+ATI,ATI Inc.,0.04,2025-10-10
+LDOS,Leidos Holdings Inc.,0.04,2025-10-10
+WAB,Westinghouse Air Brake Technologies Corporation,0.04,2025-10-10
+BKR,Baker Hughes Company,0.04,2025-10-10
+CRH,CRH plc,0.04,2025-10-10
+KLAC,KLA Corporation,0.04,2025-10-10
+STRL,Sterling Infrastructure Inc.,0.04,2025-10-10
+AWI,Armstrong World Industries Inc.,0.04,2025-10-10
+HIMS,Hims & Hers Health Inc.,0.04,2025-10-10
+ANET,Arista Networks Inc.,0.04,2025-10-10
+MPWR,Monolithic Power Systems Inc.,0.04,2025-10-10
+AVGO,Broadcom Inc.,0.04,2025-10-10
+LLY,Eli Lilly and Company,0.04,2025-10-10
+TMDX,TransMedics Group Inc.,0.04,2025-10-10
+ISRG,Intuitive Surgical Inc.,0.04,2025-10-10
+EBAY,eBay Inc.,0.04,2025-10-10
+LRCX,Lam Research Corporation,0.04,2025-10-10
+GD,General Dynamics Corporation,0.04,2025-10-10
+ORCL,Oracle Corporation,0.04,2025-10-10
+TT,Trane Technologies plc,0.01,2025-10-10
+CASH,CASH,0.03,2025-10-23
+NVDA,NVIDIA Corporation,0.04,2025-10-23
+GOOG,Alphabet Inc.,0.04,2025-10-23
+NFLX,Netflix Inc.,0.04,2025-10-23
+VST,Vistra Corp.,0.04,2025-10-23
+ATI,ATI Inc.,0.04,2025-10-23
+LDOS,Leidos Holdings Inc.,0.04,2025-10-23
+WAB,Westinghouse Air Brake Technologies Corporation,0.04,2025-10-23
+BKR,Baker Hughes Company,0.04,2025-10-23
+CRH,CRH plc,0.04,2025-10-23
+KLAC,KLA Corporation,0.04,2025-10-23
+STRL,Sterling Infrastructure Inc.,0.04,2025-10-23
+AWI,Armstrong World Industries Inc.,0.04,2025-10-23
+HIMS,Hims & Hers Health Inc.,0.04,2025-10-23
+ANET,Arista Networks Inc.,0.04,2025-10-23
+MPWR,Monolithic Power Systems Inc.,0.04,2025-10-23
+AVGO,Broadcom Inc.,0.04,2025-10-23
+LLY,Eli Lilly and Company,0.04,2025-10-23
+TMDX,TransMedics Group Inc.,0.04,2025-10-23
+ISRG,Intuitive Surgical Inc.,0.04,2025-10-23
+EBAY,eBay Inc.,0.04,2025-10-23
+LRCX,Lam Research Corporation,0.04,2025-10-23
+GD,General Dynamics Corporation,0.04,2025-10-23
+ORCL,Oracle Corporation,0.04,2025-10-23
+TT,Trane Technologies plc,0.01,2025-10-23
+META,Meta Platforms Inc.,0.02,2025-10-23
+HOOD,Robinhood Markets Inc.,0.02,2025-10-23
+CASH,CASH,0.03,2025-11-25
+NVDA,NVIDIA Corporation,0.04,2025-11-25
+GOOG,Alphabet Inc.,0.02,2025-11-25
+NFLX,Netflix Inc.,0.04,2025-11-25
+VST,Vistra Corp.,0.04,2025-11-25
+ATI,ATI Inc.,0.04,2025-11-25
+LDOS,Leidos Holdings Inc.,0.04,2025-11-25
+WAB,Westinghouse Air Brake Technologies Corporation,0.04,2025-11-25
+BKR,Baker Hughes Company,0.04,2025-11-25
+CRH,CRH plc,0.04,2025-11-25
+KLAC,KLA Corporation,0.04,2025-11-25
+STRL,Sterling Infrastructure Inc.,0.04,2025-11-25
+AWI,Armstrong World Industries Inc.,0.04,2025-11-25
+HIMS,Hims & Hers Health Inc.,0.04,2025-11-25
+ANET,Arista Networks Inc.,0.04,2025-11-25
+MPWR,Monolithic Power Systems Inc.,0.04,2025-11-25
+AVGO,Broadcom Inc.,0.04,2025-11-25
+LLY,Eli Lilly and Company,0.04,2025-11-25
+TMDX,TransMedics Group Inc.,0.04,2025-11-25
+ISRG,Intuitive Surgical Inc.,0.04,2025-11-25
+EBAY,eBay Inc.,0.04,2025-11-25
+LRCX,Lam Research Corporation,0.04,2025-11-25
+GD,General Dynamics Corporation,0.04,2025-11-25
+ORCL,Oracle Corporation,0.04,2025-11-25
+TT,Trane Technologies plc,0.01,2025-11-25
+META,Meta Platforms Inc.,0.04,2025-11-25
+HOOD,Robinhood Markets Inc.,0.02,2025-11-25
+NVDA,NVIDIA Corporation,0.05,2026-03-02
+ATI,ATI Inc.,0.05,2026-03-02
+KLAC,KLA Corporation,0.03,2026-03-02
+STRL,Sterling Infrastructure Inc.,0.05,2026-03-02
+AWI,Armstrong World Industries Inc.,0.05,2026-03-02
+ANET,Arista Networks Inc.,0.05,2026-03-02
+MPWR,Monolithic Power Systems Inc.,0.03,2026-03-02
+AVGO,Broadcom Inc.,0.05,2026-03-02
+LLY,Eli Lilly and Company,0.05,2026-03-02
+TMDX,TransMedics Group Inc.,0.03,2026-03-02
+ISRG,Intuitive Surgical Inc.,0.03,2026-03-02
+LRCX,Lam Research Corporation,0.05,2026-03-02
+TT,Trane Technologies plc,0.05,2026-03-02
+META,Meta Platforms Inc.,0.03,2026-03-02
+CAT,Caterpillar Inc.,0.05,2026-03-02
+CRS,Carpenter Technology Corporation,0.05,2026-03-02
+FN,Fabrinet,0.05,2026-03-02
+MA,Mastercard Incorporated,0.05,2026-03-02
+PLTR,Palantir Technologies Inc.,0.03,2026-03-02
+MU,Micron Technology Inc.,0.03,2026-03-02
+VICR,Vicor Corporation,0.03,2026-03-02
+AMAT,Applied Materials Inc.,0.03,2026-03-02
+FTNT,Fortinet Inc.,0.03,2026-03-02
+NEM,Newmont Corporation,0.05,2026-03-02
+CASH,CASH,0.08,2026-03-30
+NVDA,NVIDIA Corporation,0.04,2026-03-30
+ATI,ATI Inc.,0.04,2026-03-30
+KLAC,KLA Corporation,0.04,2026-03-30
+STRL,Sterling Infrastructure Inc.,0.04,2026-03-30
+LLY,Eli Lilly and Company,0.04,2026-03-30
+EBAY,eBay Inc.,0.04,2026-03-30
+LRCX,Lam Research Corporation,0.04,2026-03-30
+TT,Trane Technologies plc,0.04,2026-03-30
+CAT,Caterpillar Inc.,0.04,2026-03-30
+CRS,Carpenter Technology Corporation,0.04,2026-03-30
+FN,Fabrinet,0.04,2026-03-30
+PLTR,Palantir Technologies Inc.,0.04,2026-03-30
+MU,Micron Technology Inc.,0.04,2026-03-30
+VICR,Vicor Corporation,0.04,2026-03-30
+AMAT,Applied Materials Inc.,0.04,2026-03-30
+KSPY,KraneShares Hedgeye ETF,0.16,2026-03-30
+DGX,Quest Diagnostics Incorporated,0.04,2026-03-30
+GWW,W.W. Grainger Inc.,0.04,2026-03-30
+FCFS,FirstCash Holdings Inc.,0.04,2026-03-30
+HWM,Howmet Aerospace Inc.,0.04,2026-03-30
+NVDA,NVIDIA Corporation,0.04,2026-05-04
+ATI,ATI Inc.,0.04,2026-05-04
+STRL,Sterling Infrastructure Inc.,0.04,2026-05-04
+LLY,Eli Lilly and Company,0.04,2026-05-04
+EBAY,eBay Inc.,0.04,2026-05-04
+LRCX,Lam Research Corporation,0.04,2026-05-04
+TT,Trane Technologies plc,0.04,2026-05-04
+CAT,Caterpillar Inc.,0.04,2026-05-04
+CRS,Carpenter Technology Corporation,0.04,2026-05-04
+FN,Fabrinet,0.04,2026-05-04
+PLTR,Palantir Technologies Inc.,0.04,2026-05-04
+MU,Micron Technology Inc.,0.04,2026-05-04
+AMAT,Applied Materials Inc.,0.04,2026-05-04
+DGX,Quest Diagnostics Incorporated,0.04,2026-05-04
+FCFS,FirstCash Holdings Inc.,0.04,2026-05-04
+HWM,Howmet Aerospace Inc.,0.04,2026-05-04
+SEI,Solaris Energy Infrastructure Inc.,0.04,2026-05-04
+CIEN,Ciena Corporation,0.04,2026-05-04
+GEV,GE Vernova Inc.,0.04,2026-05-04
+TER,Teradyne Inc.,0.04,2026-05-04
+AMD,Advanced Micro Devices Inc.,0.04,2026-05-04
+CNM,Core & Main Inc.,0.04,2026-05-04
+AAPL,Apple Inc.,0.04,2026-05-04
+ACN,Accenture plc,0.04,2026-05-04
+TMO,Thermo Fisher Scientific Inc.,0.04,2026-05-04
+NVDA,NVIDIA Corporation,0.04,2026-06-01
+ATI,ATI Inc.,0.04,2026-06-01
+STRL,Sterling Infrastructure Inc.,0.04,2026-06-01
+LLY,Eli Lilly and Company,0.04,2026-06-01
+LRCX,Lam Research Corporation,0.04,2026-06-01
+CAT,Caterpillar Inc.,0.04,2026-06-01
+PLTR,Palantir Technologies Inc.,0.04,2026-06-01
+MU,Micron Technology Inc.,0.04,2026-06-01
+AMAT,Applied Materials Inc.,0.04,2026-06-01
+DGX,Quest Diagnostics Incorporated,0.04,2026-06-01
+SEI,Solaris Energy Infrastructure Inc.,0.04,2026-06-01
+CIEN,Ciena Corporation,0.04,2026-06-01
+GEV,GE Vernova Inc.,0.04,2026-06-01
+TER,Teradyne Inc.,0.04,2026-06-01
+CNM,Core & Main Inc.,0.04,2026-06-01
+AAPL,Apple Inc.,0.04,2026-06-01
+ACN,Accenture plc,0.04,2026-06-01
+TMO,Thermo Fisher Scientific Inc.,0.04,2026-06-01
+NOC,Northrop Grumman Corporation,0.04,2026-06-01
+LEA,Lear Corporation,0.04,2026-06-01
+NVT,nVent Electric plc,0.04,2026-06-01
+MTD,Mettler-Toledo International Inc.,0.04,2026-06-01
+LEU,Centrus Energy Corp.,0.04,2026-06-01
+FCX,Freeport-McMoRan Inc.,0.04,2026-06-01
+VIAV,Viavi Solutions Inc.,0.04,2026-06-01
+NVDA,NVIDIA Corporation,0.04,2026-07-02
+ATI,ATI Inc.,0.04,2026-07-02
+STRL,Sterling Infrastructure Inc.,0.04,2026-07-02
+LLY,Eli Lilly and Company,0.04,2026-07-02
+LRCX,Lam Research Corporation,0.04,2026-07-02
+CAT,Caterpillar Inc.,0.04,2026-07-02
+MA,Mastercard Incorporated,0.04,2026-07-02
+PLTR,Palantir Technologies Inc.,0.04,2026-07-02
+MU,Micron Technology Inc.,0.04,2026-07-02
+AMAT,Applied Materials Inc.,0.04,2026-07-02
+NEM,Newmont Corporation,0.04,2026-07-02
+SEI,Solaris Energy Infrastructure Inc.,0.04,2026-07-02
+CIEN,Ciena Corporation,0.04,2026-07-02
+GEV,GE Vernova Inc.,0.04,2026-07-02
+TER,Teradyne Inc.,0.04,2026-07-02
+AAPL,Apple Inc.,0.04,2026-07-02
+TMO,Thermo Fisher Scientific Inc.,0.04,2026-07-02
+NOC,Northrop Grumman Corporation,0.04,2026-07-02
+NVT,nVent Electric plc,0.04,2026-07-02
+MTD,Mettler-Toledo International Inc.,0.04,2026-07-02
+LEU,Centrus Energy Corp.,0.04,2026-07-02
+FCX,Freeport-McMoRan Inc.,0.04,2026-07-02
+VIAV,Viavi Solutions Inc.,0.04,2026-07-02
+CEG,Constellation Energy Corporation,0.04,2026-07-02
+AGX,Argan Inc.,0.04,2026-07-02
+NVDA,NVIDIA Corporation,0.04,2026-07-14
+STRL,Sterling Infrastructure Inc.,0.04,2026-07-14
+ANET,Arista Networks Inc.,0.04,2026-07-14
+LLY,Eli Lilly and Company,0.04,2026-07-14
+LRCX,Lam Research Corporation,0.02,2026-07-14
+CAT,Caterpillar Inc.,0.04,2026-07-14
+MA,Mastercard Incorporated,0.04,2026-07-14
+PLTR,Palantir Technologies Inc.,0.04,2026-07-14
+MU,Micron Technology Inc.,0.02,2026-07-14
+AMAT,Applied Materials Inc.,0.02,2026-07-14
+NEM,Newmont Corporation,0.04,2026-07-14
+SEI,Solaris Energy Infrastructure Inc.,0.04,2026-07-14
+GEV,GE Vernova Inc.,0.04,2026-07-14
+TER,Teradyne Inc.,0.02,2026-07-14
+AAPL,Apple Inc.,0.04,2026-07-14
+TMO,Thermo Fisher Scientific Inc.,0.04,2026-07-14
+NOC,Northrop Grumman Corporation,0.04,2026-07-14
+NVT,nVent Electric plc,0.04,2026-07-14
+MTD,Mettler-Toledo International Inc.,0.04,2026-07-14
+LEU,Centrus Energy Corp.,0.04,2026-07-14
+FCX,Freeport-McMoRan Inc.,0.04,2026-07-14
+CEG,Constellation Energy Corporation,0.04,2026-07-14
+AGX,Argan Inc.,0.04,2026-07-14
+AEM,Agnico Eagle Mines Limited,0.04,2026-07-14
+RDDT,Reddit Inc.,0.04,2026-07-14
+MLI,Mueller Industries Inc.,0.04,2026-07-14
+PODD,Insulet Corporation,0.02,2026-07-14
+GWRE,Guidewire Software Inc.,0.02,2026-07-14

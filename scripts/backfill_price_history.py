@@ -48,11 +48,18 @@ def _yf_symbol(ticker: str) -> str:
     return YF_SYMBOL_OVERRIDES.get(ticker, ticker.replace(".", "-"))
 
 
+# Benchmarks + factor ETFs. These are NOT in `companies`, so without this list they
+# never get refreshed and silently go stale — which strands the return series and the
+# factor-exposure regressions at whatever date they last loaded.
+BENCH_ETFS = ["SPY", "QQQ", "VLUE", "MTUM", "QUAL", "USMV", "IWM", "IWF"]
+
+
 def backfill(period=PERIOD, only_missing=False, limit=None, only_ticker=None):
     conn = psycopg2.connect(settings.DATABASE_URL)
     cur = conn.cursor()
     cur.execute("SELECT ticker FROM companies WHERE active = TRUE ORDER BY ticker")
     tickers = [r[0] for r in cur.fetchall()]
+    tickers += [t for t in BENCH_ETFS if t not in tickers]
 
     if only_ticker:
         want = {t.strip().upper() for t in ([only_ticker] if isinstance(only_ticker, str) else only_ticker)}

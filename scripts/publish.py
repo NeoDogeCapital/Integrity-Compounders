@@ -43,6 +43,7 @@ def generate_all():
         ("Portfolio dashboard",  f"{py} outputs/reports/portfolio_dashboard.py"),
         ("Watchlist dashboard",  f"{py} outputs/reports/watchlist_dashboard.py"),
         ("Factor exposure HTML", f"{py} scripts/factor_exposure.py --html"),
+        ("Analytics engine",     f"{py} scripts/ic_analytics.py --html"),
     ]
 
     for label, cmd in steps:
@@ -75,6 +76,7 @@ def _write_index():
         ("Portfolio Dashboard",  "portfolio-dashboard.html",  "Live portfolio — holdings, quads, scores, alerts"),
         ("Watchlist Dashboard",  "watchlist-dashboard.html",  "Research pipeline and approaching names"),
         ("Factor Exposure",      "factor_exposure.html",      "Monthly factor report — quality, valuation, risk"),
+        ("Analytics Engine",     "analytics.html",            "Performance & risk — Sharpe, alpha, capture, batting, slugging"),
     ]
 
     link_cards = "".join(f"""
