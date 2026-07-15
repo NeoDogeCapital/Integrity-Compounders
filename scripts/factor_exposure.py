@@ -87,6 +87,7 @@ def run_factor_exposure(save_html: bool = False, save_snapshot: bool = False):
 
     cur.execute("""
         SELECT c.id, c.ticker, c.sector,
+               ph.weight_actual,
                cmd.roic_trailing, cmd.gross_margin_trailing, cmd.fcf_margin_trailing,
                cmd.fwd_revenue_3y_cagr, cmd.net_debt_ebitda,
                cmd.fcf_yield_current, cmd.fcf_yield_forward,
@@ -100,6 +101,10 @@ def run_factor_exposure(save_html: bool = False, save_snapshot: bool = False):
             SELECT * FROM company_market_data
             WHERE company_id = c.id ORDER BY data_date DESC LIMIT 1
         ) cmd ON TRUE
+        LEFT JOIN LATERAL (
+            SELECT weight_actual FROM ic_portfolio_holdings ph2
+            WHERE ph2.ticker = c.ticker ORDER BY ph2.snapshot_date DESC LIMIT 1
+        ) ph ON TRUE
         WHERE c.in_portfolio=TRUE AND c.active=TRUE
         ORDER BY c.ticker
     """)
@@ -113,9 +118,17 @@ def run_factor_exposure(save_html: bool = False, save_snapshot: bool = False):
         conn.close()
         return
 
+    # Position weights. The book is no longer strictly 1/N (2% starters / trims coexist
+    # with 4% positions), so every aggregate must weight by actual position size —
+    # a simple mean overstates the small positions and misstates sector concentration.
+    def _w(h):
+        v = h[ci['weight_actual']]
+        return float(v) if v is not None and float(v) > 0 else (100.0 / n)
+
     def wavg(field):
-        vals = [float(h[ci[field]]) for h in holdings if h[ci[field]] is not None]
-        return round(sum(vals)/len(vals), 4) if vals else None
+        pairs = [(_w(h), float(h[ci[field]])) for h in holdings if h[ci[field]] is not None]
+        tw = sum(w for w, _ in pairs)
+        return round(sum(w * v for w, v in pairs) / tw, 4) if tw else None
 
     # ── Compute all factors ────────────────────────────────────────────────────
     # Style
@@ -162,15 +175,21 @@ def run_factor_exposure(save_html: bool = False, save_snapshot: bool = False):
     avg_corr = compute_pairwise_correlation(cur, company_ids)
 
     # Sector concentration
-    sector_counts: dict[str, int] = {}
+    sector_counts: dict[str, float] = {}
     for h in holdings:
         s = h[ci['sector']] or 'Unknown'
-        sector_counts[s] = sector_counts.get(s, 0) + 1
-    it_pct = round(sector_counts.get('Information Technology', 0)/n*100, 1)
+        sector_counts[s] = sector_counts.get(s, 0.0) + _w(h)
+    _totw = sum(sector_counts.values()) or 1.0
+    sector_counts = {s: round(w / _totw * 100, 1) for s, w in sector_counts.items()}   # % of NAV
+    it_pct = round(sector_counts.get('Information Technology', 0.0), 1)
 
     # ── Flags ──────────────────────────────────────────────────────────────────
     flags = []
-    if it_pct > 28:                                          flags.append('IT_SECTOR_CAP_BREACH')
+    # The 28% cap is a SECTOR rule, not an IT rule — flag any sector over the cap.
+    for _s, _p in sorted(sector_counts.items(), key=lambda kv: -kv[1]):
+        if _p > 28:
+            flags.append('IT_SECTOR_CAP_BREACH' if _s == 'Information Technology'
+                         else f'SECTOR_CAP_BREACH:{_s}')
     if beta and float(beta) > 1.3:                           flags.append('HIGH_BETA_PORTFOLIO')
     if nd_ebitda and float(nd_ebitda) > 2.0:                flags.append('LEVERAGE_ELEVATED')
     if avg_corr and float(avg_corr) > 0.65:                 flags.append('HIGH_CORRELATION')
@@ -184,7 +203,7 @@ def run_factor_exposure(save_html: bool = False, save_snapshot: bool = False):
 
     print(f"\n{'═'*62}")
     print(f"  INTEGRITY COMPOUNDERS — FACTOR EXPOSURE REPORT")
-    print(f"  {date.today()}  |  {n} Holdings  |  {100/n:.1f}% Equal Weight")
+    print(f"  {date.today()}  |  {n} Holdings  |  position-weighted (largest {max(_w(h) for h in holdings):.1f}%)")
     print(f"{'═'*62}")
 
     print(f"\n  STYLE FACTORS")
@@ -224,9 +243,8 @@ def run_factor_exposure(save_html: bool = False, save_snapshot: bool = False):
     print(f"    Avg Pairwise Correlation:      {n2(avg_corr) if avg_corr else 'N/A (need 90d history)'}{corr_flag}")
 
     print(f"\n  CONCENTRATION")
-    for sector, count in sorted(sector_counts.items(), key=lambda kv: -kv[1]):
-        pct_s = count/n*100
-        flag  = '  🚨 ABOVE 28% CAP' if sector == 'Information Technology' and pct_s > 28 else ''
+    for sector, pct_s in sorted(sector_counts.items(), key=lambda kv: -kv[1]):
+        flag  = '  🚨 ABOVE 28% CAP' if pct_s > 28 else ''
         print(f"    {str(sector)[:35]:<35}  {pct_s:.1f}%{flag}")
     print(f"    Effective N:                    {n}")
 

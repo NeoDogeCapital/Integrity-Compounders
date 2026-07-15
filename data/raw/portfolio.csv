@@ -1,26 +1,29 @@
 ticker,shares,avg_cost,sleeve,is_discretionary
-FCX,608.7354,65.71,Core Compounders,0
-VIAV,823.7232,48.56,Core Compounders,0
-NVDA,189.4478,211.14,Catalyst Momentum,0
-ATI,228.3626,175.16,Core Compounders,0
-STRL,46.4662,860.84,Catalyst Momentum,0
-LLY,36.1991,1105.00,Catalyst Momentum,0
-LRCX,125.715,318.18,Core Compounders,0
-CAT,45.6689,875.87,Core Compounders,0
-MU,305.8,130.80,High Conviction Speculative,1
-AMAT,88.877,450.06,Core Compounders,0
-CIEN,68.9382,580.23,Core Compounders,0
-GEV,41.3087,968.32,Core Compounders,0
-TER,106.8633,374.31,Core Compounders,0
-AAPL,128.1805,312.06,Catalyst Momentum,0
-PLTR,437,91.50,High Conviction Speculative,1
-NOC,70.9622,563.68,High Conviction Speculative,1
-SEI,500,79.90,High Conviction Speculative,1
-NVT,239.5353,166.99,Core Compounders,0
-LEU,476.2,84.00,High Conviction Speculative,1
-MTD,34.379,1163.50,Core Compounders,0
-TMO,82.4,485.18,High Conviction Speculative,1
-AGX,71.7272,790.00,Core Compounders,0
-CEG,205.6562,275.53,High Conviction Speculative,1
-MA,117.0535,484.09,Core Compounders,0
-NEM,556.6253,101.80,Catalyst Momentum,0
+AAPL,173.9283,312.80,Catalyst Momentum,0
+AEM,379.2194,144.41,Core Compounders,1
+AGX,88.2222,758.35,Core Compounders,0
+AMAT,45.9653,450.06,Core Compounders,0
+ANET,299.9566,182.57,Core Compounders,0
+CAT,58.6743,888.61,Core Compounders,0
+CEG,213.5596,274.82,High Conviction Speculative,1
+FCX,883.9883,64.54,Core Compounders,0
+GEV,51.3720,987.46,Core Compounders,0
+GWRE,194.5955,140.71,High Conviction Speculative,1
+LEU,343.6007,84.00,High Conviction Speculative,1
+LLY,47.5151,1116.32,Catalyst Momentum,0
+LRCX,79.1145,318.18,Core Compounders,0
+MA,101.7863,484.09,Core Compounders,0
+MLI,937.8845,58.39,Core Compounders,0
+MTD,41.6503,1189.92,Core Compounders,0
+MU,27.8517,130.80,High Conviction Speculative,1
+NEM,577.9744,101.54,Catalyst Momentum,0
+NOC,103.5865,552.65,High Conviction Speculative,1
+NVDA,258.5603,211.32,Catalyst Momentum,0
+NVT,338.5034,165.47,Core Compounders,0
+PLTR,409.5354,91.50,High Conviction Speculative,1
+PODD,172.0811,159.12,High Conviction Speculative,1
+RDDT,269.4105,203.27,Catalyst Momentum,0
+SEI,787.9579,76.10,High Conviction Speculative,1
+STRL,80.5790,784.12,Catalyst Momentum,0
+TER,77.5176,374.31,Core Compounders,0
+TMO,102.5391,494.78,High Conviction Speculative,1
