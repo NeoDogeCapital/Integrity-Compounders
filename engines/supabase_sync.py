@@ -519,6 +519,34 @@ _TRADE_SPEC = {
     "decision_journal": ("ic_decision_journal", "id", [
         "id","logged_at","ticker","event_type","note","auto"]),
 }
+# Tables whose local `id` is a SQLite autoincrement that has NO relationship to the
+# cloud id space. Syncing those on `id` silently OVERWRITES unrelated cloud rows
+# (this destroyed a journal entry on 2026-07-15). These sync on a natural key
+# instead; each side keeps its own id.
+_NATURAL_KEY = {
+    "decision_journal": ["logged_at", "ticker", "event_type"],
+}
+
+
+def _sqlite_bind(v):
+    """psycopg2 hands back Decimal / date / datetime — sqlite3 can bind none of them.
+    Silently skipped the whole pull before this existed."""
+    from decimal import Decimal
+    import datetime as _dt
+    if isinstance(v, Decimal):
+        return float(v)
+    if isinstance(v, bool):
+        return int(v)
+    if isinstance(v, (_dt.datetime, _dt.date)):
+        return v.isoformat()
+    return v
+
+
+def _nat_target(nat):
+    """Conflict target expression — ticker is nullable, so COALESCE it."""
+    return "(" + ", ".join(f"COALESCE({c},'')" if c == "ticker" else c for c in nat) + ")"
+
+
 _PG_TYPE = {  # columns not in this map default to text
     "trade_id":"integer","id":"integer","shares":"numeric","price":"numeric","dollar_amount":"numeric",
     "weight_before":"numeric","weight_after":"numeric","quad_provisional":"integer","ev_rank":"integer",
@@ -552,11 +580,25 @@ def sync_trade_tables_to_supabase() -> None:
                 continue
             if not rows:
                 continue
-            vals = [tuple(r[c] for c in cols) for r in rows]
-            upd = ", ".join(f"{c}=EXCLUDED.{c}" for c in cols if c != pk)
-            execute_values(cur, f"INSERT INTO {pgt} ({','.join(cols)}) VALUES %s "
-                                f"ON CONFLICT ({pk}) DO UPDATE SET {upd}", vals)
-            total += len(vals)
+            nat = _NATURAL_KEY.get(local)
+            if nat:
+                # Never push the local autoincrement id — let the cloud assign its own.
+                icols = [c for c in cols if c != pk]
+                tgt   = _nat_target(nat)
+                cur.execute(f"CREATE SEQUENCE IF NOT EXISTS {pgt}_{pk}_seq OWNED BY {pgt}.{pk}")
+                cur.execute(f"SELECT setval('{pgt}_{pk}_seq', COALESCE((SELECT MAX({pk}) FROM {pgt}), 1))")
+                cur.execute(f"ALTER TABLE {pgt} ALTER COLUMN {pk} SET DEFAULT nextval('{pgt}_{pk}_seq')")
+                cur.execute(f"CREATE UNIQUE INDEX IF NOT EXISTS ux_{pgt}_nat ON {pgt} {tgt}")
+                upd = ", ".join(f"{c}=EXCLUDED.{c}" for c in icols if c not in nat)
+                vals = [tuple(r[c] for c in icols) for r in rows]
+                execute_values(cur, f"INSERT INTO {pgt} ({','.join(icols)}) VALUES %s "
+                                    f"ON CONFLICT {tgt} DO UPDATE SET {upd}", vals)
+            else:
+                vals = [tuple(r[c] for c in cols) for r in rows]
+                upd = ", ".join(f"{c}=EXCLUDED.{c}" for c in cols if c != pk)
+                execute_values(cur, f"INSERT INTO {pgt} ({','.join(cols)}) VALUES %s "
+                                    f"ON CONFLICT ({pk}) DO UPDATE SET {upd}", vals)
+            total += len(rows)
         db.close(); cur.close(); conn.close()
         print(f"[Supabase] trade tables synced ({total} rows across trade_log/holdings/journal)")
     except Exception as e:
@@ -580,11 +622,26 @@ def pull_trade_tables_to_local() -> None:
             rows = cur.fetchall()
             if not rows:
                 continue
+            nat = _NATURAL_KEY.get(local)
+            if nat:
+                # Mirror on the natural key so the cloud id never clobbers a local row.
+                icols = [c for c in cols if c != pk]
+                idx   = [cols.index(c) for c in icols]
+                tgt   = _nat_target(nat)
+                ph    = ",".join("?" * len(icols))
+                upd   = ", ".join(f"{c}=excluded.{c}" for c in icols if c not in nat)
+                db.execute(f"CREATE UNIQUE INDEX IF NOT EXISTS ux_{local}_nat ON {local} {tgt}")
+                for r in rows:
+                    db.execute(f"INSERT INTO {local} ({','.join(icols)}) VALUES ({ph}) "
+                               f"ON CONFLICT {tgt} DO UPDATE SET {upd}",
+                               [_sqlite_bind(r[i]) for i in idx])
+                total += len(rows)
+                continue
             ph = ",".join("?" * len(cols))
             upd = ", ".join(f"{c}=excluded.{c}" for c in cols if c != pk)
             for r in rows:
                 db.execute(f"INSERT INTO {local} ({','.join(cols)}) VALUES ({ph}) "
-                           f"ON CONFLICT({pk}) DO UPDATE SET {upd}", [float(v) if hasattr(v,'is_integer') else v for v in r])
+                           f"ON CONFLICT({pk}) DO UPDATE SET {upd}", [_sqlite_bind(v) for v in r])
             total += len(rows)
         db.commit(); db.close(); cur.close(); conn.close()
         print(f"[Supabase] pulled {total} trade-table rows into local SQLite")

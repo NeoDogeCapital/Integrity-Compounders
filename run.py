@@ -20,6 +20,7 @@ Usage:
     python run.py universe log                     Universe screen entries & exits over time
     python run.py initiation                       L2 trend-filter veto list (V12.1, holds exempt)
     python run.py factor screen [FACTOR]           Per-name factor scores: leaderboard or top-25 by factor
+    python run.py health                           Pipeline health: freshness, engine outputs, book sync
     python run.py watch                                   Watch Clippings/ + PDFs/ — auto-analyze on drop
     python run.py analyze PATH [TICKER]                   Analyze a PDF or chart image with Claude vision
     python run.py load portfolio                           Load portfolio.csv, enrich + save
@@ -853,6 +854,9 @@ def main():
         cmd_universe_log()
     elif cmd in ("initiation check", "initiation", "veto"):
         cmd_initiation_check()
+    elif args[0] in ("health", "healthcheck", "doctor"):
+        import subprocess
+        subprocess.run([sys.executable, str(ROOT / "scripts" / "health_check.py")])
     elif args[0] in ("factor", "factors"):
         cmd_factor_screen([a for a in args[1:] if a.lower() != "screen"])
     elif cmd in ("weekly report", "weekly"):

@@ -38,47 +38,48 @@ def get_conn():
     return conn
 
 
-def compute_pairwise_correlation(cur, company_ids):
-    """Compute average pairwise correlation from 90 days of price returns."""
+def compute_pairwise_correlation(cur, tickers, days=90):
+    """Average pairwise correlation of daily returns over `days`.
+
+    Reads ic_price_history (dense daily bars). The previous implementation read
+    company_market_data, which only holds a handful of snapshot dates — so this
+    always returned N/A and the 0.65 correlation hard rule was unenforceable.
+    Dates are properly aligned before correlating (the old version truncated each
+    series to a common LENGTH, which silently correlated mismatched dates).
+    """
     try:
+        import pandas as pd
         cur.execute("""
-            SELECT company_id, data_date, current_price
-            FROM company_market_data
-            WHERE company_id = ANY(%s::uuid[])
-              AND data_date >= %s
-              AND current_price IS NOT NULL
-            ORDER BY company_id, data_date
-        """, (company_ids, date.today() - timedelta(days=90)))
-
-        from collections import defaultdict
-        prices = defaultdict(dict)
-        for cid, dt, price in cur.fetchall():
-            prices[str(cid)][dt] = float(price)
-
-        if len(prices) < 2:
+            SELECT ticker, price_date, adj_close
+            FROM ic_price_history
+            WHERE ticker = ANY(%s) AND price_date >= %s AND adj_close IS NOT NULL
+            ORDER BY price_date
+        """, (list(tickers), date.today() - timedelta(days=days)))
+        rows = cur.fetchall()
+        if not rows:
             return None
-
-        all_dates = sorted(set(d for p in prices.values() for d in p.keys()))
-        returns   = {}
-        for cid, price_dict in prices.items():
-            sorted_prices = [price_dict.get(d) for d in all_dates]
-            valid = [p for p in sorted_prices if p is not None]
-            if len(valid) > 10:
-                rets = [valid[i]/valid[i-1]-1 for i in range(1, len(valid))]
-                returns[cid] = rets
-
-        if len(returns) < 2:
+        df = pd.DataFrame(rows, columns=["ticker", "d", "px"])
+        df["px"] = df["px"].astype(float)
+        wide = df.pivot(index="d", columns="ticker", values="px").sort_index()
+        rets = wide.pct_change().dropna(how="all")
+        rets = rets.loc[:, rets.notna().sum() > 10]          # need a usable series
+        rets = rets.dropna()                                  # align on common dates
+        if rets.shape[1] < 2 or len(rets) < 10:
             return None
-
-        min_len = min(len(r) for r in returns.values())
-        matrix  = np.array([r[:min_len] for r in returns.values()])
-        corr    = np.corrcoef(matrix)
-        n       = len(corr)
-        pairs   = [corr[i][j] for i in range(n) for j in range(i+1, n)]
-        return round(float(np.mean(pairs)), 4) if pairs else None
+        cm = rets.corr()
+        cols = list(cm.columns)
+        pairs = [(cols[i], cols[j], float(cm.iloc[i, j]))
+                 for i in range(len(cols)) for j in range(i + 1, len(cols))]
+        if not pairs:
+            return None, []
+        avg = round(float(np.mean([p[2] for p in pairs])), 4)
+        # The rule is a PAIRWISE limit (0.65). Averaging 300+ pairs can never breach it,
+        # so also return the individual pairs that do.
+        over = sorted([p for p in pairs if p[2] > 0.65], key=lambda x: -x[2])
+        return avg, over
     except Exception as e:
         print(f"  ⚠️  Correlation failed: {e}")
-        return None
+        return None, []
 
 
 def run_factor_exposure(save_html: bool = False, save_snapshot: bool = False):
@@ -92,7 +93,7 @@ def run_factor_exposure(save_html: bool = False, save_snapshot: bool = False):
                cmd.fwd_revenue_3y_cagr, cmd.net_debt_ebitda,
                cmd.fcf_yield_current, cmd.fcf_yield_forward,
                cmd.pe_forward, cmd.ev_ebitda, cmd.market_cap,
-               cmd.beta, cmd.momentum_3m, cmd.momentum_6m, cmd.momentum_12m,
+               cmd.beta, cmd.momentum_3m, cmd.momentum_6m, cmd.momentum_12m, cmd.mom_12m_return,
                cmd.fcf_conversion, cmd.roic_spread, cmd.buyback_yield,
                cmd.short_interest_pct, cmd.institutional_own_pct,
                cmd.revision_velocity_revenue
@@ -136,6 +137,9 @@ def run_factor_exposure(save_html: bool = False, save_snapshot: bool = False):
     momentum_3m    = wavg('momentum_3m')
     momentum_6m    = wavg('momentum_6m')
     momentum_12m   = wavg('momentum_12m')
+    if momentum_12m is None:            # momentum_12m is unpopulated; V12.1 writes mom_12m_return (decimal)
+        _m = wavg('mom_12m_return')
+        momentum_12m = round(_m * 100, 4) if _m is not None else None
     beta           = wavg('beta')
     market_cap     = wavg('market_cap')
 
@@ -172,7 +176,8 @@ def run_factor_exposure(save_html: bool = False, save_snapshot: bool = False):
     beat_rate = round(beat_row[0]/beat_row[1]*100, 1) if beat_row and beat_row[1] > 0 else None
 
     # Pairwise correlation
-    avg_corr = compute_pairwise_correlation(cur, company_ids)
+    tickers  = [h[ci['ticker']] for h in holdings]
+    avg_corr, corr_pairs_over = compute_pairwise_correlation(cur, tickers)
 
     # Sector concentration
     sector_counts: dict[str, float] = {}
@@ -193,6 +198,7 @@ def run_factor_exposure(save_html: bool = False, save_snapshot: bool = False):
     if beta and float(beta) > 1.3:                           flags.append('HIGH_BETA_PORTFOLIO')
     if nd_ebitda and float(nd_ebitda) > 2.0:                flags.append('LEVERAGE_ELEVATED')
     if avg_corr and float(avg_corr) > 0.65:                 flags.append('HIGH_CORRELATION')
+    if corr_pairs_over:                                      flags.append(f'CORRELATION_PAIR_BREACH:{len(corr_pairs_over)}')
     if pos_revisions is not None and pos_revisions < 40:    flags.append('REVISION_MOMENTUM_WEAK')
     if fcf_yield_curr and float(fcf_yield_curr) < 2.0:      flags.append('VALUATION_STRETCHED')
 
@@ -241,6 +247,10 @@ def run_factor_exposure(save_html: bool = False, save_snapshot: bool = False):
     print(f"    Earnings Beat Rate (TTM):      {f'{beat_rate:.0f}%' if beat_rate else 'N/A'}")
     corr_flag = '  ✅' if avg_corr and float(avg_corr) <= 0.65 else ('  ⚠️  HIGH_CORRELATION' if avg_corr else '')
     print(f"    Avg Pairwise Correlation:      {n2(avg_corr) if avg_corr else 'N/A (need 90d history)'}{corr_flag}")
+    if corr_pairs_over:
+        print(f"    Pairs over 0.65 limit:         {len(corr_pairs_over)}  🚨")
+        for _a, _b, _v in corr_pairs_over[:6]:
+            print(f"        {_a}-{_b}: {_v:+.2f}")
 
     print(f"\n  CONCENTRATION")
     for sector, pct_s in sorted(sector_counts.items(), key=lambda kv: -kv[1]):
