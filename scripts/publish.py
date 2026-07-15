@@ -44,6 +44,7 @@ def generate_all():
         ("Watchlist dashboard",  f"{py} outputs/reports/watchlist_dashboard.py"),
         ("Factor exposure HTML", f"{py} scripts/factor_exposure.py --html"),
         ("Analytics engine",     f"{py} scripts/ic_analytics.py --html"),
+        ("Quad map",             f"{py} scripts/quad_map.py"),
     ]
 
     for label, cmd in steps:
@@ -77,6 +78,7 @@ def _write_index():
         ("Watchlist Dashboard",  "watchlist-dashboard.html",  "Research pipeline and approaching names"),
         ("Factor Exposure",      "factor_exposure.html",      "Monthly factor report — quality, valuation, risk"),
         ("Analytics Engine",     "analytics.html",            "Performance & risk — Sharpe, alpha, capture, batting, slugging"),
+        ("Quad Map",             "quad_map.html",             "The whole universe plotted by revenue & earnings momentum"),
     ]
 
     link_cards = "".join(f"""
