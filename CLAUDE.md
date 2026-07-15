@@ -86,8 +86,18 @@ Dashboard: https://NeoDogeCapital.github.io/Integrity-Compounders/
 ## QUAD FRAMEWORK (V12 — + contamination detector)
 - X = Revenue Momentum = Fwd Rev CAGR − Trailing Rev CAGR
 - Y = Earnings Momentum = Fwd EPS CAGR (capped 25%) − Trailing EPS CAGR
-- **Q1 Full Compounders** (X>0, Y>0) · **Q2 Earnings Resilience** (X>0, Y≤0)
-- **Q3 Margin Compression** (X≤0, Y≤0, watchlist) · **Q4 Reset/Avoid** (X≤0, Y>0)
+- **Q1 Full Compounders** (X>0, Y>0) — both accelerating · **EV 1, best**
+- **Q2 Margin Compression** (X>0, Y≤0) — revenue accelerating, earnings compressing · **EV 2, actionable**
+- **Q3 Full Deterioration** (X≤0, Y≤0) — both decelerating, watchlist · **EV 3, override required**
+- **Q4 Reset/Avoid** (X≤0, Y>0) — revenue falling while EPS expands (cost-cutting) · **EV 4, WORST**
+- **Q4 is the worst bucket, not the mildest.** EPS expanding without revenue is the exact
+  pattern the contamination detector exists to catch — hence V12's Reset/Avoid rename.
+- **Names corrected 2026-07-15 (Niko).** V12 redefined the rules but kept the v9/v10
+  names on Q2 and Q3, so "Q2 Earnings Resilience" sat on X>0/Y≤0 — 68 names whose
+  earnings are *compressing*. Rules are V12's as written; Q2/Q3 are renamed to describe
+  what they hold. **§5 below is the superseded v9/v10 framework** (Q2 = X<0/Y>0 etc.);
+  it disagreed with V12 on 81% of the universe and the engine had never been migrated.
+  This section governs; `engines/quad.py::_assign_quadrant` implements it.
 - **Contamination detector:** eps_acceleration = eps_cagr_1y − eps_cagr_3y vs
   gp_acceleration = gp_cagr_1y − gp_cagr_3y → `earnings_quality_flag`.
 - Two consecutive months required to confirm any quad change.
@@ -318,9 +328,19 @@ valuation overlay — see Section 5.4.
   assign Quadrant = "N/A" and route to discretionary review.
 - If only one axis is computable: compute that axis only; still assign N/A for quadrant.
 
-### 5.2 Quadrant Assignment
+### 5.2 Quadrant Assignment — **SUPERSEDED BY V12**
 
-| Quadrant | X | Y | EV Rank | Character |
+> **Do not use this table.** It is the v9/v10 framework, kept to explain outputs
+> generated before 2026-07-15. The live rules are in **QUAD FRAMEWORK (V12)** at
+> the top of this file and in `engines/quad.py::_assign_quadrant`.
+>
+> The two disagree on **81% of the universe**. V12 rotated the meanings: what this
+> table calls Q2 (X<0/Y>0) is V12's **Q4 Reset/Avoid**; this table's Q3 (X>0/Y<0)
+> is V12's **Q2**; this table's Q4 (X<0/Y<0) is V12's **Q3**. The engine implemented
+> *this* table until 2026-07-15 and was never migrated when V12 landed — every quad
+> value produced before that date follows the rules below, not V12.
+
+| Quadrant (v9/v10 — retired) | X | Y | EV Rank | Character |
 |----------|---|---|---------|-----------|
 | Q1 Full Compounders | > 0 | > 0 | **1 — Best** | Revenue AND earnings accelerating. Core long. Full confirmation. |
 | Q2 Earnings Resilience | < 0 | > 0 | 2 | Revenue slowing but earnings holding. Quality signal — watch for revenue recovery. |
@@ -329,6 +349,9 @@ valuation overlay — see Section 5.4.
 
 **Tie-breaking (X = 0 or Y = 0):** assign to the lower-EV quadrant
 (conservative: if X = 0 treat as negative; if Y = 0 treat as negative).
+V12 implements exactly this — its X≤0 / Y≤0 boundaries put flat names in the
+weaker bucket. The retired engine did not: it used `x >= 0`, sending flat names to
+the *better* bucket, contradicting this rule for as long as it was live.
 
 **Quadrant stability rule:** Require two consecutive month-ends in the same new
 quadrant before treating a migration as signal. First appearance = "provisional."
@@ -453,26 +476,32 @@ Value Re-rate Underway names → 60–90 DTE call spreads.
 
 ---
 
-## 9. QUAD SEVERITY & MIGRATION LABELS (v10.0)
+## 9. QUAD SEVERITY & MIGRATION LABELS (re-derived for V12, 2026-07-15)
 
-**EV Rank:** Q1 (1, Best) → Q2 (2) → Q3 (3) → Q4 (4, Worst)
+**EV Rank:** Q1 (1, Best) → Q2 (2) → Q3 (3) → Q4 (4, Worst). Unchanged by V12 —
+but *what each bucket means* changed, so every row below was re-derived.
+
+> The v10.0 version of this table read under V12 said the opposite of what it meant:
+> it called Q1 → Q2 "revenue slowing but earnings holding" when under V12 that move
+> is revenue *still accelerating* while earnings roll over. Mirrored in
+> `engines/quad.py::SEVERITY_MAP`.
 
 ### Migration Severity Labels:
 
 | Migration | Label | Meaning |
 |-----------|-------|---------|
-| Q1 → Q2 | CONSTRUCTIVE | Revenue slowing but earnings holding — monitor |
-| Q1 → Q3 | WARNING | Earnings fading despite revenue growth — margin risk |
-| Q1 → Q4 | **DANGEROUS** | Full deterioration from best bucket |
-| Q2 → Q1 | FAVORABLE | Revenue reaccelerating — full confirmation |
-| Q2 → Q3 | **DANGEROUS** | Lost earnings resilience AND revenue now compressing |
-| Q2 → Q4 | **DANGEROUS** | Full deterioration from earnings resilience |
-| Q3 → Q1 | FAVORABLE | Earnings recovering while revenue still strong |
-| Q3 → Q4 | WARNING | Revenue now also slowing — full deterioration incoming |
+| Q1 → Q2 | WARNING | Earnings rolling over while revenue still accelerates — margin risk |
+| Q1 → Q3 | **DANGEROUS** | Both axes rolled over from the best bucket |
+| Q1 → Q4 | **DANGEROUS** | Revenue lost and EPS now cost-driven — quality break from the best bucket |
+| Q2 → Q1 | FAVORABLE | Margins recovering with revenue still accelerating — full confirmation |
+| Q2 → Q3 | **DANGEROUS** | Revenue acceleration lost — both axes now decelerating |
+| Q2 → Q4 | **DANGEROUS** | Revenue lost; EPS now propped by cost-cutting |
+| Q3 → Q1 | FAVORABLE | Full recovery — strongest signal |
+| Q3 → Q2 | CONSTRUCTIVE | Revenue reaccelerating first — margins still lagging |
+| Q3 → Q4 | WARNING | EPS up while revenue still falls — cost-driven, verify against gross profit |
 | Q4 → Q1 | FAVORABLE | Full recovery — strongest signal |
-| Q4 → Q2 | CONSTRUCTIVE | Earnings recovering first — quality signal |
-| Q4 → Q3 | CONSTRUCTIVE | Revenue recovering first — watch margins |
-| Q3 → Q2 | **DANGEROUS** | Revenue slowing to match earnings — both now weak |
+| Q4 → Q2 | CONSTRUCTIVE | Revenue reaccelerating — margins lag but the cost-cut mirage is over |
+| Q4 → Q3 | CONSTRUCTIVE | Cost-driven EPS gains lapped — deterioration is at least honest now |
 
 ---
 

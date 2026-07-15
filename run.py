@@ -9,7 +9,7 @@ Usage:
     python run.py refresh                         Load newest CSV from data/raw/, recompute all
     python run.py quad snapshot                   Current quadrant distribution + top names
     python run.py q1 list                         Q1 Full Compounders sorted by Alignment Score
-    python run.py q2 list                         Q2 Earnings Resilience sorted by Alignment Score
+    python run.py q2 list                         Q2 Margin Compression sorted by Alignment Score
     python run.py q3 watch                        Q3 Margin Compression names (flag for review)
     python run.py flip screen                     FCF Yield Flip top 20
     python run.py alignment report                Full Alignment Score table
@@ -774,8 +774,9 @@ def cmd_full_update():
     # Quad distribution summary
     q_counts = df_after["quadrant"].value_counts().to_dict()
     print(f"\n  UNIVERSE SNAPSHOT: {len(after_tickers)} names")
-    for q, label in [("Q1","Full Compounders"),("Q2","Earnings Resilience"),
-                      ("Q3","Margin Compression"),("Q4","Full Deterioration")]:
+    from engines.quad import QUAD_NAME
+    for q in ("Q1", "Q2", "Q3", "Q4"):
+        label = QUAD_NAME[q]
         n = q_counts.get(q, 0)
         pct = n / len(after_tickers) * 100
         bar = "█" * int(pct / 3)

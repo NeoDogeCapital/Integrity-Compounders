@@ -30,7 +30,7 @@ ACTIONS      = ["BUY", "ADD", "TRIM", "SELL", "CLOSE"]
 SLEEVES      = ["Core Compounders", "Catalyst Momentum",
                 "Relative Value Pairs", "High Conviction Speculative"]
 TRIGGER_TYPES = [
-    "Q1 Confirmation", "Q2 Earnings Resilience Entry", "Momentum Entry",
+    "Q1 Confirmation", "Q2 Entry", "Momentum Entry",
     "Rebalance / Reweight", "Conviction Add", "Quad Migration",
     "Earnings Catalyst", "Valuation Reset", "Portfolio Construction",
 ]

@@ -5,16 +5,15 @@ Every active name positioned by its two axes (CLAUDE.md §5.1):
     X = Revenue Momentum  = Fwd Rev CAGR − Trailing Rev 3Y CAGR
     Y = Earnings Momentum = Fwd EPS CAGR (capped 25%) − Trailing EPS 3Y CAGR
 
-Quadrants follow engines/quad.py::_assign_quadrant, which is the code of record:
-    Q1 Full Compounders    X ≥ 0, Y ≥ 0   (EV Rank 1 — best)
-    Q2 Earnings Resilience X < 0, Y ≥ 0   (EV Rank 2)
-    Q3 Margin Compression  X ≥ 0, Y < 0   (EV Rank 3)
-    Q4 Full Deterioration  X < 0, Y < 0   (EV Rank 4 — worst)
+Quadrants follow engines/quad.py::_assign_quadrant (V12 rules, names corrected):
+    Q1 Full Compounders    X > 0, Y > 0   both accelerating        (EV 1 — best)
+    Q2 Margin Compression  X > 0, Y ≤ 0   revenue up, earnings down (EV 2)
+    Q3 Full Deterioration  X ≤ 0, Y ≤ 0   both decelerating        (EV 3 — watchlist)
+    Q4 Reset/Avoid         X ≤ 0, Y > 0   revenue down, EPS up      (EV 4 — worst)
 
-NOTE — CLAUDE.md contradicts itself on this. §5.2's table agrees with the code
-(and with this chart). The V12 summary at the top of the file does not: it claims
-Q2 = X>0/Y≤0, Q3 = X≤0/Y≤0, Q4 = X≤0/Y>0, which would mislabel three quadrants.
-The code and §5.2 win; the summary line is wrong and should be corrected.
+Rules are V12's (METHODOLOGY_V12.md), which CLAUDE.md §5.2 does NOT match — §5.2 is
+the superseded v9/v10 framework and the two disagree on 81% of the universe. Names
+are corrected: V12 kept the old Q2/Q3 labels while shifting the rules beneath them.
 
 Reads Supabase (source of truth) — company_market_data carries x_rev_mom (X) and
 x_eps_mom (Y) alongside the stored quadrant, written by data_updater's quad stage.
@@ -45,15 +44,27 @@ DOCS = ROOT / "docs"; DOCS.mkdir(exist_ok=True)
 NAVY, GOLD = "#1F3A5F", "#C9A84C"
 CLIP = 30.0
 
+# V12 rules with names corrected to match (see engines/quad.py::QUAD_NAME).
+# Colours stay per §5.3 (Q1 blue, Q2 green, Q3 red, Q4 orange) — that spec keys off
+# the quad NUMBER, and V12 leaves the EV ordering 1→4 intact, so the severity
+# gradient still reads correctly.
+# `rect` is the region each quad occupies (x0,x1,y0,y1) and `corner` its caption
+# anchor: V12 moves three of the four, so both are derived from the rule, not
+# inherited.
 QUADS = {
-    "Q1": dict(name="Q1 · Full Compounders",    color="#2563eb", fill="rgba(37,99,235,.055)",
+    "Q1": dict(name="Q1 · Full Compounders",   color="#2563eb", fill="rgba(37,99,235,.055)",
+               rule="X > 0, Y > 0", ev=1, rect=(0, None, 0, None), corner=(0.992, 0.985, "right", "top"),
                desc="Revenue AND earnings accelerating. Core long — full confirmation."),
-    "Q2": dict(name="Q2 · Earnings Resilience", color="#1baf7a", fill="rgba(27,175,122,.055)",
-               desc="Revenue slowing, earnings holding. Quality signal — watch for revenue recovery."),
-    "Q3": dict(name="Q3 · Margin Compression",  color="#cc3333", fill="rgba(204,51,51,.055)",
-               desc="Revenue growing, earnings fading. Margin risk — monitor closely."),
-    "Q4": dict(name="Q4 · Full Deterioration",  color="#e08a1e", fill="rgba(224,138,30,.055)",
-               desc="Both decelerating. Avoid or reduce."),
+    "Q2": dict(name="Q2 · Margin Compression", color="#1baf7a", fill="rgba(27,175,122,.055)",
+               rule="X > 0, Y ≤ 0", ev=2, rect=(0, None, None, 0), corner=(0.992, 0.015, "right", "bottom"),
+               desc="Revenue accelerating, earnings compressing. Margin risk — still actionable per V12."),
+    "Q3": dict(name="Q3 · Full Deterioration", color="#cc3333", fill="rgba(204,51,51,.055)",
+               rule="X ≤ 0, Y ≤ 0", ev=3, rect=(None, 0, None, 0), corner=(0.008, 0.015, "left", "bottom"),
+               desc="Both decelerating. Watchlist — requires documented override."),
+    "Q4": dict(name="Q4 · Reset/Avoid",        color="#e08a1e", fill="rgba(224,138,30,.055)",
+               rule="X ≤ 0, Y > 0", ev=4, rect=(None, 0, 0, None), corner=(0.008, 0.985, "left", "top"),
+               desc="Revenue falling while EPS expands — cost-cutting. Worst bucket: this is the "
+                    "pattern the earnings-quality detector exists to catch."),
 }
 
 
@@ -100,20 +111,19 @@ def build(df: pd.DataFrame) -> str:
 
     fig = go.Figure()
     # quadrant shading + corner labels
-    for q, (x0, x1, y0, y1) in {"Q1": (0, CLIP, 0, CLIP), "Q2": (-CLIP, 0, 0, CLIP),
-                                "Q3": (0, CLIP, -CLIP, 0), "Q4": (-CLIP, 0, -CLIP, 0)}.items():
-        fig.add_shape(type="rect", x0=x0, x1=x1, y0=y0, y1=y1, layer="below",
-                      fillcolor=QUADS[q]["fill"], line={"width": 0})
+    for q, cfg in QUADS.items():
+        x0, x1, y0, y1 = cfg["rect"]
+        fig.add_shape(type="rect", x0=(-CLIP if x0 is None else x0), x1=(CLIP if x1 is None else x1),
+                      y0=(-CLIP if y0 is None else y0), y1=(CLIP if y1 is None else y1),
+                      layer="below", fillcolor=cfg["fill"], line={"width": 0})
 
     # Captions pinned to the plot's four corners in PAPER coords, each on a backing
     # box. Data coords don't work here: the bottom edge is a solid carpet of clipped
     # triangles (72 names sit below −30% on Y), so a caption placed in the Q3/Q4
     # band lands on top of it whatever y you choose. Corners also map to meaning —
     # Q1 (best) top-right, Q4 (worst) bottom-left.
-    for q, (px, py, xa, ya) in {"Q2": (0.008, 0.985, "left", "top"),
-                                "Q1": (0.992, 0.985, "right", "top"),
-                                "Q4": (0.008, 0.015, "left", "bottom"),
-                                "Q3": (0.992, 0.015, "right", "bottom")}.items():
+    for q, cfg in QUADS.items():
+        px, py, xa, ya = cfg["corner"]
         fig.add_annotation(x=px, y=py, xref="paper", yref="paper", xanchor=xa, yanchor=ya,
                            text=f"<b>{QUADS[q]['name']}</b>  ({int((d.quad == q).sum())})",
                            showarrow=False, font={"size": 11, "color": QUADS[q]["color"]},
@@ -174,7 +184,10 @@ def html(df: pd.DataFrame) -> str:
     dd = max([x for x in df.data_date if x is not None], default="—")
     n_clip = int(((d.x.abs() > CLIP) | (d.y.abs() > CLIP)).sum())
     n_ybot = int((d.y < -CLIP).sum())
-    n_neg = (d.quad.isin(["Q3", "Q4"])).sum() / max(len(d), 1)
+    # Under V12, Q3+Q4 is X≤0 (revenue decelerating), NOT negative earnings —
+    # earnings-negative is Y≤0, i.e. Q2+Q3. Derive both from the axes, not the labels.
+    n_negy = (d.y <= 0).sum() / max(len(d), 1)
+    n_negx = (d.x <= 0).sum() / max(len(d), 1)
     n_held_total = int(df.held.sum())
     n_held_plot = int(d.held.sum())
     held_missing = sorted(na[na.held].ticker)
@@ -188,8 +201,8 @@ def html(df: pd.DataFrame) -> str:
 
     legend = "".join(
         f"""<tr><td style="white-space:nowrap"><b style="color:{QUADS[q]['color']}">{QUADS[q]['name']}</b></td>
-            <td style="text-align:center;color:#64748b">{'X ≥ 0, Y ≥ 0' if q=='Q1' else 'X &lt; 0, Y ≥ 0' if q=='Q2' else 'X ≥ 0, Y &lt; 0' if q=='Q3' else 'X &lt; 0, Y &lt; 0'}</td>
-            <td style="text-align:center"><b>{ {'Q1':1,'Q2':2,'Q3':3,'Q4':4}[q] }</b></td>
+            <td style="text-align:center;color:#64748b">{QUADS[q]['rule'].replace('<', '&lt;')}</td>
+            <td style="text-align:center"><b>{QUADS[q]['ev']}</b></td>
             <td style="color:#64748b">{QUADS[q]['desc']}</td></tr>""" for q in ("Q1", "Q2", "Q3", "Q4"))
 
     na_rows = ", ".join(f"<b>{t}★</b>" if t in held_missing else t
@@ -231,9 +244,9 @@ Click a legend entry to isolate a quadrant.<br>
 they sit on the edge pointing the way they went, with the true value in the hover. One name reaches
 −667% on earnings momentum, so plotting unclipped would flatten everything else into a dot.<br>
 <b>That row along the bottom is a finding, not an artefact.</b> {n_ybot} names — {n_ybot/max(len(d),1):.0%} of
-the universe — have earnings momentum below −30%, and {n_neg:.0%} of the screen sits in Q3 or Q4
-(negative earnings momentum) at all. The screen is currently finding far more decelerating earnings
-than accelerating ones.
+the universe — have earnings momentum below −30%. More broadly {n_negy:.0%} of the screen has earnings
+decelerating at all (Y ≤ 0 → Q2 or Q3) and {n_negx:.0%} has revenue decelerating (X ≤ 0 → Q3 or Q4).
+The screen is currently finding far more deceleration than acceleration on both axes.
 </div></div>
 
 <div class="card"><h2>Quadrant definitions</h2>

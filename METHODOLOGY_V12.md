@@ -31,10 +31,22 @@ Axes (forward vs trailing — captures consensus revision direction):
 - Y = fwd_eps_cagr − eps_3y_cagr (earnings acceleration)
 
 Quadrants:
-- Q1 Full Compounder: X>0, Y>0 — revenue and earnings both accelerating
-- Q2 Earnings Resilience: X>0, Y≤0 — revenue accelerating, earnings compressing
-- Q3 Margin Compression: X≤0, Y≤0 — both decelerating (watchlist)
-- Q4 Reset/Avoid: X≤0, Y>0 — revenue decelerating, EPS expanding (cost-cutting)
+- Q1 Full Compounders: X>0, Y>0 — revenue and earnings both accelerating (EV 1, best)
+- Q2 Margin Compression: X>0, Y≤0 — revenue accelerating, earnings compressing (EV 2, actionable)
+- Q3 Full Deterioration: X≤0, Y≤0 — both decelerating (EV 3, watchlist)
+- Q4 Reset/Avoid: X≤0, Y>0 — revenue decelerating, EPS expanding via cost-cutting (EV 4, WORST)
+
+Q4 is the worst bucket, not the mildest: EPS expanding while revenue declines is
+precisely the pattern the contamination detector below exists to catch.
+
+Names corrected 2026-07-15 (Niko). The rules are unchanged — they are V12's as
+originally written — but Q2 and Q3 kept their v9/v10 names when V12 shifted the
+rules beneath them, leaving "Q2 Earnings Resilience" attached to X>0/Y≤0, i.e. 68
+names whose earnings are compressing. Only Q1 and Q4 carried names that matched
+their own rule. Zero goes to the ≤ side on both axes (conservative tie-break).
+Implemented by engines/quad.py::_assign_quadrant, which until 2026-07-15 still ran
+the superseded v9/v10 rules from CLAUDE.md §5.2 and disagreed with this section on
+81% of the universe.
 
 **Earnings Quality Contamination Detector** (new in V12):
 Because EPS is vulnerable to buybacks, tax, SBC, and D&A manipulation, we verify

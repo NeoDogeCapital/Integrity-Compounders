@@ -72,9 +72,9 @@ def _s1_quad_distribution(port: pd.DataFrame) -> str:
     cards = []
     for q, label, color, bg in [
         ("Q1", "Full Compounders",    "#2563eb", "#eff6ff"),
-        ("Q2", "Earnings Resilience", "#16a34a", "#f0fdf4"),
-        ("Q3", "Margin Compression",  "#dc2626", "#fef2f2"),
-        ("Q4", "Full Deterioration",  "#d97706", "#fffbeb"),
+        ("Q2", "Margin Compression", "#16a34a", "#f0fdf4"),
+        ("Q3", "Full Deterioration",  "#dc2626", "#fef2f2"),
+        ("Q4", "Reset/Avoid",         "#d97706", "#fffbeb"),
     ]:
         grp = port[port["quadrant"] == q] if "quadrant" in port.columns else pd.DataFrame()
         n   = len(grp)

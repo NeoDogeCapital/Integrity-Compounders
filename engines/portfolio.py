@@ -216,8 +216,9 @@ def _print_load_summary(port: pd.DataFrame, total_value: float):
     print()
 
     q_counts = port["quadrant"].value_counts().to_dict() if "quadrant" in port.columns else {}
-    for q, label in [("Q1","Full Compounders"),("Q2","Earnings Resilience"),
-                     ("Q3","Margin Compression"),("Q4","Full Deterioration"),("N/A","N/A")]:
+    from engines.quad import QUAD_NAME
+    for q in ("Q1", "Q2", "Q3", "Q4", "N/A"):
+        label = "N/A" if q == "N/A" else QUAD_NAME[q]
         n_q = q_counts.get(q, 0)
         if n_q:
             wt = port[port["quadrant"]==q]["weight_actual"].sum() if "quadrant" in port.columns else 0

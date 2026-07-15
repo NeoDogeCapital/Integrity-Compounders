@@ -10,11 +10,11 @@ Y-Axis (Earnings Momentum):
     Y = Fwd EPS CAGR capped (col 24, cap 25%) - EPS 3Y CAGR (col 23)
     Positive = earnings accelerating. Negative = earnings decelerating.
 
-Quadrant Assignment:
-    Q1 Full Compounders:    X > 0, Y > 0  (EV Rank 1 — Best)
-    Q2 Earnings Resilience: X < 0, Y > 0  (EV Rank 2)
-    Q3 Margin Compression:  X > 0, Y < 0  (EV Rank 3)
-    Q4 Full Deterioration:  X < 0, Y < 0  (EV Rank 4 — Worst)
+Quadrant Assignment (V12 rules, names corrected 2026-07-15):
+    Q1 Full Compounders:   X > 0, Y > 0  both accelerating         (EV 1 — Best)
+    Q2 Margin Compression: X > 0, Y ≤ 0  revenue up, earnings down  (EV 2)
+    Q3 Full Deterioration: X ≤ 0, Y ≤ 0  both decelerating          (EV 3 — watchlist)
+    Q4 Reset/Avoid:        X ≤ 0, Y > 0  revenue down, EPS up       (EV 4 — Worst)
     N/A: either axis is missing or uncomputable
 
 FCF Yield Spread is now a separate valuation overlay (not a quad input).
@@ -33,55 +33,75 @@ Y_CLIP = (-0.30, 0.30)
 EV_RANK = {"Q1": 1, "Q2": 2, "Q3": 3, "Q4": 4, "N/A": 99}
 EV_LABEL = {
     1:  "1 — Best (Full Compounders)",
-    2:  "2 — Quality Signal (Earnings Resilience)",
-    3:  "3 — Warning (Margin Compression)",
-    4:  "4 — Worst (Full Deterioration)",
+    2:  "2 — Margin Risk (Margin Compression)",
+    3:  "3 — Watchlist (Full Deterioration)",
+    4:  "4 — Worst (Reset/Avoid — cost-driven EPS)",
     99: "N/A",
 }
 
 # ── Quad name lookup ──────────────────────────────────────────────────────────
+# V12 rules (METHODOLOGY_V12.md), with names corrected to match them.
+# V12 redefined the quadrants but kept the v9/v10 names for Q2 and Q3, leaving
+# "Q2 Earnings Resilience" attached to X>0/Y≤0 — names whose earnings are
+# COMPRESSING. Niko's call (2026-07-15): V12's rules govern, and the labels are
+# renamed to describe what they now contain. Only Q1 and Q4 carry V12's own names.
 QUAD_NAME = {
-    "Q1": "Full Compounders",
-    "Q2": "Earnings Resilience",
-    "Q3": "Margin Compression",
-    "Q4": "Full Deterioration",
+    "Q1": "Full Compounders",     # X>0, Y≤0 both accelerating
+    "Q2": "Margin Compression",   # X>0, Y≤0 revenue accelerating, earnings compressing
+    "Q3": "Full Deterioration",   # X≤0, Y≤0 both decelerating (watchlist)
+    "Q4": "Reset/Avoid",          # X≤0, Y>0 revenue falling, EPS up on cost-cutting
     "N/A": "Axis Incomplete",
 }
 
 # ── Migration severity matrix ─────────────────────────────────────────────────
+# Re-derived for V12's quadrant meanings. The previous table was written against
+# v9/v10 semantics and, read under V12, said the opposite of what it meant — it
+# called Q1→Q2 "revenue slowing but earnings holding" when under V12 that move is
+# revenue still accelerating and earnings rolling over. §9 of CLAUDE.md is the
+# v10.0 version of this table and needs the same review.
 SEVERITY_MAP = {
-    ("Q1", "Q2"): ("CONSTRUCTIVE", "Revenue slowing but earnings holding — monitor"),
-    ("Q1", "Q3"): ("WARNING",      "Earnings fading despite revenue growth — margin risk"),
-    ("Q1", "Q4"): ("DANGEROUS",    "Full deterioration from best bucket"),
-    ("Q2", "Q1"): ("FAVORABLE",    "Revenue reaccelerating — full confirmation"),
-    ("Q2", "Q3"): ("DANGEROUS",    "Lost earnings resilience AND revenue now compressing"),
-    ("Q2", "Q4"): ("DANGEROUS",    "Full deterioration from earnings resilience"),
-    ("Q3", "Q1"): ("FAVORABLE",    "Earnings recovering while revenue still strong"),
-    ("Q3", "Q4"): ("WARNING",      "Revenue now also slowing — full deterioration incoming"),
+    ("Q1", "Q2"): ("WARNING",      "Earnings rolling over while revenue still accelerates — margin risk"),
+    ("Q1", "Q3"): ("DANGEROUS",    "Both axes rolled over from the best bucket"),
+    ("Q1", "Q4"): ("DANGEROUS",    "Revenue lost and EPS now cost-driven — quality break from the best bucket"),
+    ("Q2", "Q1"): ("FAVORABLE",    "Margins recovering with revenue still accelerating — full confirmation"),
+    ("Q2", "Q3"): ("DANGEROUS",    "Revenue acceleration lost — both axes now decelerating"),
+    ("Q2", "Q4"): ("DANGEROUS",    "Revenue lost; EPS now propped by cost-cutting"),
+    ("Q3", "Q1"): ("FAVORABLE",    "Full recovery — strongest signal"),
+    ("Q3", "Q2"): ("CONSTRUCTIVE", "Revenue reaccelerating first — margins still lagging"),
+    ("Q3", "Q4"): ("WARNING",      "EPS up while revenue still falls — cost-driven, verify against gross profit"),
     ("Q4", "Q1"): ("FAVORABLE",    "Full recovery — strongest signal"),
-    ("Q4", "Q2"): ("CONSTRUCTIVE", "Earnings recovering first — quality signal"),
-    ("Q4", "Q3"): ("CONSTRUCTIVE", "Revenue recovering first — watch margins"),
-    ("Q3", "Q2"): ("DANGEROUS",    "Revenue slowing to match earnings — both now weak"),
+    ("Q4", "Q2"): ("CONSTRUCTIVE", "Revenue reaccelerating — margins lag but the cost-cut mirage is over"),
+    ("Q4", "Q3"): ("CONSTRUCTIVE", "Cost-driven EPS gains lapped — deterioration is at least honest now"),
 }
 
 
 def _assign_quadrant(x: float, y: float) -> str:
     """
     Assign quadrant from X (Revenue Momentum) and Y (Earnings Momentum).
-    Q1 Full Compounders:    X > 0 AND Y > 0  (EV Rank 1 — Best)
-    Q2 Earnings Resilience: X < 0 AND Y > 0  (EV Rank 2)
-    Q3 Margin Compression:  X > 0 AND Y < 0  (EV Rank 3)
-    Q4 Full Deterioration:  X < 0 AND Y < 0  (EV Rank 4 — Worst)
+
+    V12 rules (METHODOLOGY_V12.md), names corrected to match — see QUAD_NAME:
+      Q1 Full Compounders:  X > 0 AND Y > 0   both accelerating          (EV 1, best)
+      Q2 Margin Compression:X > 0 AND Y ≤ 0   revenue up, earnings down  (EV 2)
+      Q3 Full Deterioration:X ≤ 0 AND Y ≤ 0   both decelerating          (EV 3, watchlist)
+      Q4 Reset/Avoid:       X ≤ 0 AND Y > 0   revenue down, EPS up       (EV 4, worst)
+
+    Q4 is the WORST bucket, not the mildest: EPS expanding while revenue declines is
+    cost-cutting, the exact pattern V12's earnings-quality contamination detector
+    exists to catch. That is why V12 renamed it Reset/Avoid.
+
+    This engine previously implemented the v9/v10 rules from CLAUDE.md §5.2
+    (Q2 = X<0/Y>0, Q3 = X>0/Y<0, Q4 = X<0/Y<0) and was never migrated to V12;
+    the two frameworks disagree on 81% of the universe. V12 governs (Niko,
+    2026-07-15).
+
+    Zero goes to the ≤ side on both axes, which also restores §5.2's stated
+    conservative tie-break — the old `x >= 0` put flat names in the better bucket.
     """
     if pd.isna(x) or pd.isna(y):
         return "N/A"
-    if x >= 0 and y >= 0:
-        return "Q1"   # Full Compounders
-    if x < 0 and y >= 0:
-        return "Q2"   # Earnings Resilience
-    if x >= 0 and y < 0:
-        return "Q3"   # Margin Compression
-    return "Q4"       # Full Deterioration (x < 0 and y < 0)
+    if x > 0:
+        return "Q1" if y > 0 else "Q2"
+    return "Q4" if y > 0 else "Q3"
 
 
 def compute_axes(df: pd.DataFrame) -> pd.DataFrame:
@@ -302,9 +322,9 @@ def print_quad_distribution(df: pd.DataFrame):
     print("=" * 65)
     for q, label, ev in [
         ("Q1", "Full Compounders       [EV Rank 1 — BEST]",  "++"),
-        ("Q2", "Earnings Resilience    [EV Rank 2]",          "+ "),
-        ("Q3", "Margin Compression     [EV Rank 3]",          "- "),
-        ("Q4", "Full Deterioration     [EV Rank 4 — WORST]", "--"),
+        ("Q2", "Margin Compression     [EV Rank 2]",          "+ "),
+        ("Q3", "Full Deterioration     [EV Rank 3]",          "- "),
+        ("Q4", "Reset/Avoid            [EV Rank 4 — WORST]", "--"),
         ("N/A","Axis Incomplete",                             "  "),
     ]:
         n = counts.get(q, 0)

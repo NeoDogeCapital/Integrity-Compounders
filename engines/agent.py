@@ -231,7 +231,7 @@ Pod: {d.get('pod','N/A')} (Pod Count: {d.get('pod_count','N/A')})
 
 ### Quad Framework
 - Quadrant: {d['quadrant']} — {d['quad_name']}
-- EV Rank: {ival(d.get('ev_rank'))} (1=Best Full Compounder, 4=Worst Full Deterioration)
+- EV Rank: {ival(d.get('ev_rank'))} (1=Best Full Compounders, 4=Worst Reset/Avoid — cost-driven EPS)
 - Revenue Momentum (X-Axis): {x:+.2f}% (Fwd Rev CAGR minus Trailing — positive = accelerating)
 - Earnings Momentum (Y-Axis): {y:+.2f}% (Fwd EPS CAGR minus Trailing — positive = accelerating)
 
@@ -863,8 +863,9 @@ def _format_portfolio_context(port_df, uni_df) -> str:
 
         q_counts = merged.groupby("quadrant_u")["weight_actual"].sum().to_dict()
         lines.append(f"\n## QUAD WEIGHT DISTRIBUTION")
-        for q, label in [("Q1","Full Compounders"),("Q2","Earnings Resilience"),
-                          ("Q3","Margin Compression"),("Q4","Full Deterioration"),("N/A","Not in model")]:
+        from engines.quad import QUAD_NAME
+        for q in ("Q1", "Q2", "Q3", "Q4", "N/A"):
+            label = "Not in model" if q == "N/A" else QUAD_NAME[q]
             w = q_counts.get(q, 0)
             n = int((merged["quadrant_u"] == q).sum())
             lines.append(f"  {q} {label:<25} {n:>2} names   {w:.1f}%")
@@ -1063,9 +1064,9 @@ Portfolio context: This is a 25-name concentrated equity portfolio run within an
 (Integrity Wealth Partners, LPL affiliate). 21 positions are IC-model-driven (based on
 quad framework and alignment score). 4 are discretionary: MU, PLTR, SEI, LEU.
 The quad framework uses Revenue Momentum (X-axis) and EPS Momentum (Y-axis) to place
-names in Q1 Full Compounders (both positive), Q2 Earnings Resilience (revenue negative,
-earnings positive), Q3 Margin Compression (revenue positive, earnings negative),
-Q4 Full Deterioration (both negative).
+names in Q1 Full Compounders (both positive), Q2 Margin Compression (revenue positive,
+earnings negative), Q3 Full Deterioration (both negative), Q4 Reset/Avoid (revenue
+negative but EPS positive — cost-cutting; the WORST bucket, not the mildest).
 """
 
     response = client.messages.create(
