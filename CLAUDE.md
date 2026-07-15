@@ -126,8 +126,7 @@ python scripts/synthesize.py --html
 ```
 python scripts/company_scorer.py --quarterly
 python scripts/factor_exposure.py --snapshot --html
-python run.py universe review            # two-strike rule (§4) — dry run
-python run.py universe review --apply    # apply removals + journal them
+python run.py universe review            # screen-absence report (§4.1) — read-only
 ```
 
 ## ANY TIME
@@ -235,12 +234,20 @@ Flag this substitution in any output that depends on it.
 
 ---
 
-## 4. THE FIVE-GATE QUALITY SCREEN
+## 4. THE FIVE-GATE QUALITY SCREEN — **RETIRED IN V12**
 
-All five gates must pass. One fail = watch-only. Two consecutive monthly fails on the
-same gate, or one fail on two different gates = removed from universe.
+> **Superseded — historical reference only.** Nothing computes these gates and
+> nothing acts on them. The live replacement is **QUALITY INDICATORS** (see that
+> section above): six PASS/FAIL diagnostics producing a `quality_profile`, which
+> never remove a name. `engines/screener.py::update_universe_status` is a
+> deliberate no-op.
+>
+> The retired rule read: *"All five gates must pass. One fail = watch-only. Two
+> consecutive monthly fails on the same gate, or one fail on two different gates
+> = removed from universe."* It contradicted V12's own "Indicators do NOT remove
+> names" and was never implemented in code.
 
-| Gate | Field | Threshold | Direction |
+| Gate (retired) | Field | Threshold | Direction |
 |------|-------|-----------|-----------|
 | Quality | ROIC (col 25) | ≥ 12% | ≥ |
 | Durability | Operating Margin (col 19) | ≥ 25% | ≥ |
@@ -248,9 +255,37 @@ same gate, or one fail on two different gates = removed from universe.
 | Reinvestment | Revenue 3Y CAGR (col 18) | ≥ 6% | ≥ |
 | Balance Sheet | Net Debt / EBITDA (col 20) | ≤ 2.5× | ≤ |
 
-**Note on Cash Conversion gate:** FCF Yield is a market-price-dependent metric.
-The original gate is FCF Margin ≥ 10%. When FCF Margin is unavailable from Fiscal AI,
-we use FCF Yield ≥ 8% as a reasonable proxy. Flag substitution in screener output.
+### 4.1 NAMES ARE NEVER AUTO-REMOVED (Niko, 2026-07-15)
+
+No automated path deactivates a name — not indicator fails, not screen absence,
+not momentum. Rationale:
+
+- **Diagnosis is not eviction.** V12's whole direction was retiring eliminatory
+  language. A name is surfaced; a human decides.
+- **Deactivation has teeth.** `data_updater` refreshes prices `WHERE active =
+  TRUE`, so deactivating a name freezes its prices and strands the return series
+  and every factor regression — the failure that silently froze SPY for five
+  weeks. Wrongly removing a name costs far more than carrying one.
+- **Screen exits are mostly noise.** A name absent from one monthly screen is
+  often back the next: of the 22 names outside the 2026-07-09 screen, 19 were
+  present a month earlier.
+- **Holdings especially.** Read commands filter `universe_status='active'`, so
+  deactivating a holding hides a live position from our own reports.
+  `deactivate_absent()` exempts holdings for this reason.
+
+**What replaces removal:** `run.py universe review` reports consecutive monthly
+screen absence (read-only; ★ marks holdings) and `run.py universe log` records
+entries/exits over time. Both inform; neither acts. Deactivation is a manual
+decision, taken deliberately and journalled per §12.
+
+**Screen membership vs tracking — two different fields:**
+- local `universe_status` = "in the current Fiscal AI screen" — bookkeeping, a
+  fact about the screen; holdings exempt
+- cloud `companies.active` = "we track this name" — policy; changed only by hand
+
+**Note on the retired Cash Conversion gate:** FCF Yield is market-price
+dependent. The original gate was FCF Margin ≥ 10%; FCF Yield ≥ 8% served as a
+proxy when FCF Margin was unavailable. Retained to explain historical outputs.
 
 **EPS CAGR cap:** Forward EPS CAGR is capped at 25% for any name with near-zero
 trailing EPS (base-effect protection). Track capped names separately.
@@ -477,7 +512,7 @@ When Niko types any of the following, I execute the corresponding workflow:
 | `migration log` | Show all quad changes since last snapshot with severity labels |
 | `journal [note]` | Append a timestamped decision note to journal/decisions/ |
 | `audit` | Compare current universe to last month; flag additions, removals, migrations |
-| `universe review [--apply]` | Two-strike removal rule (§4): names absent from the last two **monthly** screens are removed; one strike = watch-only. Holdings and names with insufficient screen history are never removed; re-entry reactivates. Dry run unless `--apply`. |
+| `universe review` | Screen-absence report (§4.1): consecutive monthly absences from the Fiscal AI screen, ★ = holdings. **Read-only — names are never auto-removed** (see §4.1). |
 | `health` | Pipeline health: data freshness, engine coverage, book sync, journal mirroring. Exit 1 on any FAIL. |
 | `who is [TICKER]` | Full factor card for a single name: all metrics, quad, pod, scores |
 

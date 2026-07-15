@@ -1,50 +1,37 @@
 """
-universe_maintenance.py — the two-strike universe removal rule (rulebook §4)
+universe_maintenance.py — screen-absence review (DIAGNOSTIC — never removes)
 
-    "One fail = watch-only. Two consecutive monthly fails ... = removed from
-     universe."
+Reports how long each tracked name has been absent from the Fiscal AI screen.
+It does NOT deactivate anything. Nothing in this system auto-removes a name:
+`engines.screener.update_universe_status` is a deliberate no-op, and per V12 the
+Quality Indicators are diagnostic — "Indicators do NOT remove names". This script
+follows the same rule, by Niko's decision (2026-07-15): the tracked universe does
+not shrink on its own. Surfacing a name is useful; evicting it is not, because
+deactivating a name stops its price refresh and strands its history — and a name
+out of the screen this month is often back in it the next.
 
-Until now nothing implemented this: companies.active was 304/304 TRUE and no
-code path ever set it FALSE, so "active" carried no information and every
-`WHERE active = TRUE` filter really meant "everything we have ever seen".
+Read the output as a watchlist, not a to-do list. Acting on it is a human call.
 
-WHAT COUNTS AS A FAIL
-V12 retired the eliminatory five-gate language — Quality Indicators are
-explicitly diagnostic and "do NOT remove names". So the fail that matters is
-absence from the Fiscal AI screen: the screener defines the universe.
+STRIKES
+A "strike" is absence from one monthly screen. The exports in data/raw/ are the
+ground truth of screen membership; ic_signal_rankings.rank_date is the *run*
+date, not the screen date (the 07-09 export re-ranked on 07-13 yields two
+rank_dates from one screen), so it cannot be used here. Screens are grouped by
+calendar month and the latest export in each month is that month's observation —
+otherwise two ad-hoc uploads three days apart (06-01, 06-04) would read as two
+separate monthly strikes.
 
-WHAT COUNTS AS A MONTH
-The screener exports in data/raw/ are the ground truth of screen membership;
-ic_signal_rankings.rank_date is the *run* date, not the screen date (the same
-07-09 export ranked again on 07-13 produces two rank_dates from one screen).
-Screens are therefore grouped by calendar month and the latest export in each
-month is that month's observation — otherwise two ad-hoc uploads three days
-apart (06-01, 06-04) would count as two "monthly" strikes and evict a name in
-a week.
+Names never seen in an on-disk screen are reported as INSUFFICIENT HISTORY, not
+as strikes: the exports only reach back to 2026-05-29, and LEU / PLTR / SEI are
+live positions that predate them. Absence of evidence is not evidence of absence.
 
-THREE GUARDS, each load-bearing
-  • Holdings are never removed. Deactivating a name we own stops its price
-    refresh, which strands the return series and every factor regression — the
-    exact failure that froze SPY for five weeks.
-  • Names never observed in any on-disk screen have INSUFFICIENT HISTORY and are
-    left alone. Absence of evidence is not two strikes: the exports only reach
-    back to 2026-05-29, and LEU / PLTR / SEI are live positions that predate
-    them.
-  • Re-entering the screen reactivates a name, so removal is never a one-way
-    door.
-
-Dry run by default; --apply mutates. Removals are journalled (rulebook §12
-makes "name added to or removed from universe" a material event).
-
-    python scripts/universe_maintenance.py            # report only
-    python scripts/universe_maintenance.py --apply    # apply + journal
-    python run.py universe review [--apply]
+    python scripts/universe_maintenance.py
+    python run.py universe review
 """
 import sys
 import csv
 import glob
 import re
-import sqlite3
 import argparse
 from pathlib import Path
 from collections import defaultdict
@@ -55,7 +42,7 @@ sys.path.insert(0, str(ROOT))
 import psycopg2
 from config.settings import settings
 
-MIN_MONTHS = 2   # rulebook: two consecutive monthly fails
+STRIKE_WINDOW = 2   # months of screen history to report against
 
 
 def monthly_screens(raw_dir: Path = None) -> dict:
@@ -85,13 +72,13 @@ def _holdings() -> set:
 
 
 def evaluate() -> dict:
-    """Classify every tracked name against the two-strike rule."""
+    """Classify tracked names by consecutive monthly screen absence. Read-only."""
     screens = monthly_screens()
-    if len(screens) < MIN_MONTHS:
-        return {"error": f"need {MIN_MONTHS} monthly screens, have {len(screens)}"}
+    if len(screens) < STRIKE_WINDOW:
+        return {"error": f"need {STRIKE_WINDOW} monthly screens, have {len(screens)}"}
 
     months = list(screens)
-    recent = months[-MIN_MONTHS:]                     # the two most recent months
+    recent = months[-STRIKE_WINDOW:]
     recent_sets = [screens[m][1] for m in recent]
     newest = recent_sets[-1]
     ever = set().union(*(s for _, s in screens.values()))
@@ -103,101 +90,57 @@ def evaluate() -> dict:
     cur.close(); conn.close()
 
     held = _holdings()
-    remove, watch, reactivate, insufficient, protected = [], [], [], [], []
+    two_strike, watch, insufficient, in_screen = [], [], [], []
 
-    for tk, active in cloud.items():
+    for tk in cloud:
         if tk in newest:
-            if not active:
-                reactivate.append(tk)                 # back in the screen
+            in_screen.append(tk)
             continue
         if tk not in ever:
-            insufficient.append(tk)                   # never observed — no evidence
+            insufficient.append(tk)
             continue
         strikes = sum(1 for s in recent_sets if tk not in s)
-        if strikes >= MIN_MONTHS:
-            (protected if tk in held else remove).append(tk)
-        else:
-            watch.append(tk)                          # one strike — watch only
+        (two_strike if strikes >= STRIKE_WINDOW else watch).append(tk)
 
-    return {"screens": screens, "recent": recent, "remove": sorted(remove),
-            "watch": sorted(watch), "reactivate": sorted(reactivate),
-            "insufficient": sorted(insufficient), "protected": sorted(protected)}
-
-
-def apply_changes(res: dict) -> None:
-    """Set companies.active / universe_status and journal each removal."""
-    conn = psycopg2.connect(settings.DATABASE_URL)
-    conn.autocommit = True
-    cur = conn.cursor()
-    for tk in res["remove"]:
-        cur.execute("UPDATE companies SET active = FALSE WHERE ticker = %s", (tk,))
-    for tk in res["reactivate"]:
-        cur.execute("UPDATE companies SET active = TRUE WHERE ticker = %s", (tk,))
-    cur.close(); conn.close()
-
-    db = ROOT / "data" / "universe.db"
-    if db.exists():
-        l = sqlite3.connect(db)
-        for tk in res["remove"]:
-            l.execute("UPDATE universe SET universe_status='inactive' WHERE ticker=?", (tk,))
-        for tk in res["reactivate"]:
-            l.execute("UPDATE universe SET universe_status='active' WHERE ticker=?", (tk,))
-        l.commit(); l.close()
-
-    if res["remove"]:
-        from engines.database import log_decision
-        last = res["screens"][res["recent"][-1]][0]
-        for tk in res["remove"]:
-            log_decision(
-                note=(f"UNIVERSE REMOVAL — {tk} absent from the last {MIN_MONTHS} monthly "
-                      f"screens ({', '.join(res['recent'])}); rulebook §4 two-strike rule. "
-                      f"Latest screen {last}. Not held. Re-entry reactivates."),
-                ticker=tk, event_type="UNIVERSE_REMOVAL",
-            )
-        from engines.supabase_sync import sync_trade_tables_to_supabase
-        sync_trade_tables_to_supabase()
+    ann = lambda ts: sorted(f"{t}★" if t in held else t for t in ts)
+    return {"screens": screens, "recent": recent, "in_screen": sorted(in_screen),
+            "two_strike": ann(two_strike), "watch": ann(watch),
+            "insufficient": ann(insufficient),
+            "inactive": sorted(t for t, a in cloud.items() if not a)}
 
 
 def main():
-    ap = argparse.ArgumentParser()
-    ap.add_argument("--apply", action="store_true", help="apply changes (default: dry run)")
-    a = ap.parse_args()
+    ap = argparse.ArgumentParser(description="Screen-absence review (read-only)")
+    ap.parse_args()
 
     res = evaluate()
     if res.get("error"):
         print(f"\n  ⚠️  {res['error']}\n")
         return 1
 
-    print("\n" + "=" * 66)
-    print(f"  UNIVERSE REVIEW — two-strike rule ({'APPLY' if a.apply else 'DRY RUN'})")
-    print("=" * 66)
+    print("\n" + "=" * 68)
+    print("  UNIVERSE REVIEW — screen absence (diagnostic · nothing is removed)")
+    print("=" * 68)
     print("  monthly screens: " + " · ".join(f"{m} ({d}, {len(s)})"
                                              for m, (d, s) in res["screens"].items()))
-    print(f"  strike window:   {' + '.join(res['recent'])}")
-    print("-" * 66)
-    print(f"  ❌ REMOVE ({len(res['remove'])})       absent from both monthly screens")
-    for t in res["remove"]:
-        print(f"       {t}")
-    print(f"  ⚠️  WATCH ({len(res['watch'])})        one strike — stay active")
+    print(f"  window:          {' + '.join(res['recent'])}      ★ = we hold it")
+    print("-" * 68)
+    print(f"  ✅ in newest screen ({len(res['in_screen'])})")
+    print(f"  ⚠️  absent {STRIKE_WINDOW}+ months ({len(res['two_strike'])})  — worth a look, still tracked")
+    if res["two_strike"]:
+        print(f"       {', '.join(res['two_strike'])}")
+    print(f"  ·  absent 1 month ({len(res['watch'])})")
     if res["watch"]:
         print(f"       {', '.join(res['watch'])}")
-    if res["protected"]:
-        print(f"  ★  HELD, EXEMPT ({len(res['protected'])})  two strikes but we own them")
-        print(f"       {', '.join(res['protected'])}")
-    if res["reactivate"]:
-        print(f"  ✅ REACTIVATE ({len(res['reactivate'])})   back in the newest screen")
-        print(f"       {', '.join(res['reactivate'])}")
-    print(f"  ·  insufficient history ({len(res['insufficient'])})  never in an on-disk screen — untouched")
+    print(f"  ·  insufficient history ({len(res['insufficient'])})  — never in an on-disk screen")
     if res["insufficient"]:
         print(f"       {', '.join(res['insufficient'])}")
-    print("-" * 66)
-
-    if a.apply:
-        apply_changes(res)
-        print(f"  Applied: {len(res['remove'])} removed, {len(res['reactivate'])} reactivated.")
-    else:
-        print("  Dry run — nothing changed. Re-run with --apply to commit.")
-    print("=" * 66 + "\n")
+    if res["inactive"]:
+        print(f"  ❗ currently inactive ({len(res['inactive'])})  — deactivated by hand at some point")
+        print(f"       {', '.join(res['inactive'])}")
+    print("-" * 68)
+    print("  Read-only. Names are never auto-removed; deactivation is a human decision.")
+    print("=" * 68 + "\n")
     return 0
 
 
