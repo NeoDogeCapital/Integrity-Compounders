@@ -632,6 +632,15 @@ def load_fiscal_csv_signals(conn):
             col_map[col] = 'gp_cagr_1y'
         elif 'gross profit 3y' in cl:
             col_map[col] = 'gp_cagr_3y'
+        # ── Quarterly earnings/revenue surprise (beat/miss vs consensus) ──────
+        # Screener headers: "EPS Normalized Actual vs Estimate (Quarterly)" and
+        # "Revenue Actual vs Estimate (Quarterly)". Feeds eps_surprise_q /
+        # rev_surprise_q (the ESV/surprise input to alignment). Must come after the
+        # "eps normalized forward" / "revenue forward" checks above so those win.
+        elif 'actual vs estimate' in cl and 'eps' in cl:
+            col_map[col] = 'eps_surprise_q'
+        elif 'actual vs estimate' in cl and ('revenue' in cl or cl.startswith('rev')):
+            col_map[col] = 'rev_surprise_q'
         else:
             col_map[col] = col
 
@@ -654,7 +663,12 @@ def load_fiscal_csv_signals(conn):
                   'eps_cagr_1y', 'eps_3y_cagr', 'gp_cagr_1y', 'gp_cagr_3y']
     dollar_fields = ['fcf_ttm', 'enterprise_value', 'sbc_dollar', 'market_cap']
 
-    for f in pct_fields + dollar_fields:
+    # Surprise fields are stored as percentage points (a +9% beat reads 9.0),
+    # matching the existing eps_surprise_q/rev_surprise_q convention — strip % but
+    # do NOT divide by 100.
+    surprise_fields = ['eps_surprise_q', 'rev_surprise_q']
+
+    for f in pct_fields + dollar_fields + surprise_fields:
         if f in df.columns:
             df[f] = _clean(df[f])
             if f in pct_fields:
@@ -788,6 +802,8 @@ def load_fiscal_csv_signals(conn):
             'growth_efficiency_ratio':   round(ger, 4) if ger is not None else None,
             'qgs_tier':                  qgs_tier,
             'ger_flag':                  ger_flag,
+            'eps_surprise_q':            get('eps_surprise_q'),
+            'rev_surprise_q':            get('rev_surprise_q'),
         })
 
     print(f"  Processed {len(results)} tickers")
@@ -864,7 +880,9 @@ def load_fiscal_csv_signals(conn):
                     gp_cagr_3y                  = %s,
                     eps_acceleration            = %s,
                     gp_acceleration             = %s,
-                    earnings_quality_flag       = %s
+                    earnings_quality_flag       = %s,
+                    eps_surprise_q              = %s,
+                    rev_surprise_q              = %s
                 WHERE ticker = %s
                 AND data_date = (
                     SELECT MAX(data_date) FROM company_market_data
@@ -887,6 +905,8 @@ def load_fiscal_csv_signals(conn):
                 r['eps_acceleration'],
                 r['gp_acceleration'],
                 r['earnings_quality_flag'],
+                r['eps_surprise_q'],
+                r['rev_surprise_q'],
                 ticker, ticker
             ))
             # Mirror earnings_quality_flag onto companies for quad-level cache
