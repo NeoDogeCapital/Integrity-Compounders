@@ -532,10 +532,20 @@ def main():
     from momentum_engine import compute_momentum
     from alignment_scorer_v3 import compute_alignment_v3
     from factor_scorer import compute_factor_scores
-    # Prices must be fresh BEFORE momentum. Incremental ~1mo window (≈21 bars/ticker)
-    # is cheap and gap-tolerant (survives holidays / skipped runs); it upserts the
-    # latest bars. For a first-time / full history load run backfill_price_history.py
-    # directly with --period 2y.
+    # New screen entrants have no price history, and the incremental 1mo window
+    # below can't build the ~250 bars 12-1 momentum needs — so momentum silently
+    # sat NULL for them until a manual 2y backfill (health dipped <85% after every
+    # high-churn week). Backfill full history for the missing names FIRST, so they
+    # carry real momentum on their very first run. `only_missing=True` skips names
+    # that already have bars, so this is cheap on a normal week (0 names) and only
+    # does work when the screen adds names.
+    print("\n[V12.1] Backfilling 2y history for new names (only-missing)...")
+    try:
+        refresh_recent_prices(period="2y", only_missing=True)
+    except Exception as e:
+        print(f"  ⚠️  new-name backfill failed (non-fatal): {e}")
+    # Then the incremental ~1mo window (≈21 bars/ticker) tops up recent bars for
+    # everyone — cheap and gap-tolerant (survives holidays / skipped runs).
     print("\n[V12.1] Refreshing recent prices into ic_price_history (incremental)...")
     refresh_recent_prices(period="1mo")
     print("\n[V12.1] Momentum signals (risk-adj 12-1, trend, extension, reversal)...")
