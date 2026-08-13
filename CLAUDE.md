@@ -543,6 +543,7 @@ When Niko types any of the following, I execute the corresponding workflow:
 | `audit` | Compare current universe to last month; flag additions, removals, migrations |
 | `universe review` | Screen-absence report (§4.1): consecutive monthly absences from the Fiscal AI screen, ★ = holdings. **Read-only — names are never auto-removed** (see §4.1). |
 | `health` | Pipeline health: data freshness, engine coverage, book sync, journal mirroring. Exit 1 on any FAIL. |
+| `briefing [TICKERS...]` | **Standing template for ALL trade communications to advisors** (`scripts/trade_briefing.py`): per name — 2-sentence business, 2-sentence catalysts (prose via `--notes` JSON), model-findings table (quad, QGS, earnings quality, trend/momentum, alignment v3, pillars — composite <6.5 in red), and a 12-mo chart (35D EMA gold, 200-DMA dashed, ±1σ extension band, trend annotation). House style §14. Example notes: `outputs/exports/briefing_notes_2026-08-13.json`. |
 | `who is [TICKER]` | Full factor card for a single name: all metrics, quad, pod, scores |
 
 ---
