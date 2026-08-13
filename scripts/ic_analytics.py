@@ -202,23 +202,32 @@ def compute_metrics(df, rfs):
                 omega=omega, monthly_win=(m > 0).mean(), months=len(m), rf_mean=rf.mean() * ANN)
 
 
+# Rolling stats warm up with an expanding window from MINP days so the charts
+# begin near the 2025-10-10 inception instead of first appearing 63 trading days
+# in (~2026-01-12) — which read as if the portfolio started in January. Early
+# points use fewer observations and are noisier by construction; chart titles
+# say so.
+MINP = 21
+
+
 def rolling_series(df, rfs, w=ROLL):
     p, b = df["p"], df["b"]
     rf = pd.Series([rfs.get(str(d.date()), 0.0) for d in df.index], index=df.index)
     ex, exb = p - rf, b - rf
     out = pd.DataFrame(index=df.index)
-    out["sharpe"] = (ex.rolling(w).mean() / ex.rolling(w).std()) * np.sqrt(ANN)
-    cov = p.rolling(w).cov(b); var = b.rolling(w).var()
+    out["sharpe"] = (ex.rolling(w, min_periods=MINP).mean() / ex.rolling(w, min_periods=MINP).std()) * np.sqrt(ANN)
+    cov = p.rolling(w, min_periods=MINP).cov(b); var = b.rolling(w, min_periods=MINP).var()
     out["beta"] = cov / var
-    out["alpha"] = (ex.rolling(w).mean() - out["beta"] * exb.rolling(w).mean()) * ANN
-    out["vol"] = p.rolling(w).std() * np.sqrt(ANN)
+    out["alpha"] = (ex.rolling(w, min_periods=MINP).mean() - out["beta"] * exb.rolling(w, min_periods=MINP).mean()) * ANN
+    out["vol"] = p.rolling(w, min_periods=MINP).std() * np.sqrt(ANN)
     # rolling geometric capture (same definition as the headline metric)
     def _roll_cap(sign):
         vals = []
         for i in range(len(p)):
-            if i + 1 < w:
+            if i + 1 < MINP:
                 vals.append(np.nan); continue
-            wp, wb = p.iloc[i + 1 - w:i + 1], b.iloc[i + 1 - w:i + 1]
+            lo = max(0, i + 1 - w)
+            wp, wb = p.iloc[lo:i + 1], b.iloc[lo:i + 1]
             m = (wb > 0) if sign > 0 else (wb < 0)
             if not m.any():
                 vals.append(np.nan); continue
@@ -354,41 +363,46 @@ def build_html(df, m, r, t, rf_mean):
     import plotly.graph_objects as go
     P, B = "#1F3A5F", "#9aa4b0"
     x = df.index
+    # Cumulative/drawdown traces get a 0% anchor on the allocation date itself
+    # (2025-10-10) — the first RETURN is the next trading day, but the chart
+    # should start where the money did.
+    x0 = [pd.Timestamp(INCEPTION)] + list(x)
+    anchor = lambda s: [0.0] + list(s)
     C = []
     # 1 cumulative
     f = go.Figure()
-    f.add_trace(go.Scatter(x=x, y=r['cum_p'], name='Integrity Compounders', line={'color': P, 'width': 2}))
-    f.add_trace(go.Scatter(x=x, y=r['cum_b'], name='SPY', line={'color': B, 'width': 1.6, 'dash': 'dash'}))
+    f.add_trace(go.Scatter(x=x0, y=anchor(r['cum_p']), name='Integrity Compounders', line={'color': P, 'width': 2}))
+    f.add_trace(go.Scatter(x=x0, y=anchor(r['cum_b']), name='SPY', line={'color': B, 'width': 1.6, 'dash': 'dash'}))
     f.update_yaxes(tickformat='.0%')
-    C.append(_fig(f, 'Cumulative return vs SPY', 320, first=True, legend=True))
+    C.append(_fig(f, 'Cumulative return vs SPY (inception 2025-10-10)', 320, first=True, legend=True))
     # 2 drawdown
     f = go.Figure()
-    f.add_trace(go.Scatter(x=x, y=r['dd'], name='IC', line={'color': '#cc3333', 'width': 1.4}, fill='tozeroy',
+    f.add_trace(go.Scatter(x=x0, y=anchor(r['dd']), name='IC', line={'color': '#cc3333', 'width': 1.4}, fill='tozeroy',
                            fillcolor='rgba(204,51,51,0.12)'))
-    f.add_trace(go.Scatter(x=x, y=r['dd_b'], name='SPY', line={'color': B, 'width': 1.2, 'dash': 'dash'}))
+    f.add_trace(go.Scatter(x=x0, y=anchor(r['dd_b']), name='SPY', line={'color': B, 'width': 1.2, 'dash': 'dash'}))
     f.update_yaxes(tickformat='.0%')
     C.append(_fig(f, 'Drawdown (underwater)', 250, legend=True))
     # 3 rolling sharpe
     f = go.Figure(go.Scatter(x=x, y=r['sharpe'], line={'color': P, 'width': 1.8}))
     f.add_hline(y=0, line={'color': '#888', 'width': 0.8})
     f.add_hline(y=1, line={'color': GOLD, 'width': 0.8, 'dash': 'dot'})
-    C.append(_fig(f, f'Rolling {ROLL}-day Sharpe (rf = 13-wk T-bill)', 250))
+    C.append(_fig(f, f'Rolling {ROLL}-day Sharpe (rf = 13-wk T-bill; expanding ≥{MINP}d at start)', 250))
     # 4 rolling beta
     f = go.Figure(go.Scatter(x=x, y=r['beta'], line={'color': '#4a3aa7', 'width': 1.8}))
     f.add_hline(y=1, line={'color': GOLD, 'width': 0.8, 'dash': 'dot'})
-    C.append(_fig(f, f'Rolling {ROLL}-day beta vs SPY', 250))
+    C.append(_fig(f, f'Rolling {ROLL}-day beta vs SPY (expanding ≥{MINP}d at start)', 250))
     # 5 rolling alpha
     f = go.Figure(go.Scatter(x=x, y=r['alpha'], line={'color': '#1baf7a', 'width': 1.8}, fill='tozeroy',
                              fillcolor='rgba(27,175,122,0.10)'))
     f.add_hline(y=0, line={'color': '#888', 'width': 0.8})
     f.update_yaxes(tickformat='.0%')
-    C.append(_fig(f, f'Rolling {ROLL}-day annualised alpha', 250))
+    C.append(_fig(f, f'Rolling {ROLL}-day annualised alpha (expanding ≥{MINP}d at start)', 250))
     # 6 rolling capture
     f = go.Figure()
     f.add_trace(go.Scatter(x=x, y=r['up_cap'], name='Up capture', line={'color': '#1baf7a', 'width': 1.7}))
     f.add_trace(go.Scatter(x=x, y=r['down_cap'], name='Down capture', line={'color': '#cc3333', 'width': 1.7}))
     f.add_hline(y=1, line={'color': GOLD, 'width': 0.8, 'dash': 'dot'})
-    C.append(_fig(f, f'Rolling {ROLL}-day up / down capture (daily, geometric)', 250, legend=True))
+    C.append(_fig(f, f'Rolling {ROLL}-day up / down capture (geometric; expanding ≥{MINP}d at start)', 250, legend=True))
     # 7 monthly bars
     mp = (1 + df['p']).resample('ME').prod() - 1
     mb = (1 + df['b']).resample('ME').prod() - 1

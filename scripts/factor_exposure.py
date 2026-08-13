@@ -513,7 +513,10 @@ def compute_rolling_factor_exposures(port_rets, factor_excess, spy_rets, window=
         if f not in factor_excess:
             continue
         j = pd.concat([port_ex, factor_excess[f]], axis=1, keys=['p', 'f']).dropna()
-        out[f] = (j['p'].rolling(window).cov(j['f']) / j['f'].rolling(window).var()).dropna()
+        # min_periods: expanding warm-up so rolling β starts near portfolio
+        # inception (2025-10-10) rather than 63 trading days in (~Jan 2026).
+        out[f] = (j['p'].rolling(window, min_periods=21).cov(j['f'])
+                  / j['f'].rolling(window, min_periods=21).var()).dropna()
     return pd.DataFrame(out)
 
 
