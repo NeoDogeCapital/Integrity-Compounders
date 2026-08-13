@@ -28,7 +28,7 @@ Usage:
     python scripts/trade_briefing.py V STX --title "Rotation 2026-08-12" \
         --intro "Custom purpose paragraph..." --out outputs/exports/foo.docx
 
-Example notes file: outputs/exports/briefing_notes_2026-08-13.json
+Example notes file: scripts/briefing_notes_example.json
 """
 import sys
 import json

@@ -1,0 +1,26 @@
+{
+ "LRCX": {
+  "biz": "Lam Research is one of the world's largest semiconductor wafer-fabrication equipment makers, specializing in the etch and deposition tools used to build advanced logic and memory chips. Its systems sit in critical process steps at virtually every leading-edge fab, with a large installed base generating recurring services revenue.",
+  "cat": "Lam closed fiscal 2026 with record results (~$23.2B revenue, up ~26% year over year) and guided another record quarter on AI-driven NAND/DRAM and advanced-packaging investment. Its new Akara conductor-etch platform is winning tool-of-record positions at 2nm-and-below nodes, and packaging revenue is guided to grow more than 70% in 2026."
+ },
+ "AMAT": {
+  "biz": "Applied Materials is the broadest supplier of semiconductor manufacturing equipment, spanning deposition, etch, implant, metrology and advanced packaging. It sells to every major chipmaker and foundry, making it a bellwether for global fab capital spending.",
+  "cat": "Applied posted record quarterly revenue (~$7.9B) and raised guidance on AI data-center demand for leading-edge logic and high-bandwidth memory capacity. Management guides >30% semiconductor-equipment growth and >50% packaging growth for 2026, with advanced packaging a structural share gainer as chiplet architectures spread."
+ },
+ "LLY": {
+  "biz": "Eli Lilly is one of the world's largest pharmaceutical companies, led by its dominant incretin (GLP-1) franchise in diabetes and obesity \u2014 Mounjaro and Zepbound \u2014 alongside oncology, immunology and neuroscience portfolios. It pairs the industry's strongest growth profile with large-scale manufacturing investment.",
+  "cat": "The FDA approved orforglipron in April 2026 \u2014 the first oral GLP-1 obesity pill, showing roughly 12% weight loss in Phase 3 with no food or water restrictions \u2014 a manufacturing-scalable answer to injectable supply constraints. Lilly guided 2026 revenue of $80\u201383B, and the latest screen quarter delivered +9% EPS and +11% revenue surprises."
+ },
+ "CAT": {
+  "biz": "Caterpillar is the world's largest maker of construction and mining equipment, plus reciprocating engines, turbines and locomotives. Its Energy & Transportation segment supplies backup and prime power generation \u2014 the segment now driving the story.",
+  "cat": "Caterpillar posted its first-ever $20B revenue quarter, with Power Generation sales up 72% on AI data-center demand for large gensets and turbines. Backlog reached a record ~$72B \u2014 some turbine orders stretch to 2030 \u2014 and management raised full-year 2026 revenue growth guidance to the mid-to-high teens."
+ },
+ "CEG": {
+  "biz": "Constellation Energy is the largest producer of carbon-free electricity in the U.S., operating the nation's biggest nuclear fleet (~32 GW) alongside natural gas, geothermal and renewables. Its January 2026 close of the $16.4B Calpine acquisition brings the combined fleet to roughly 60 GW.",
+  "cat": "Constellation has signed marquee long-term power agreements with hyperscalers \u2014 a 20-year, 1,121 MW PPA with Meta supporting the Clinton plant and the Microsoft-backed Crane (Three Mile Island) restart \u2014 positioning it as a go-to power partner for AI data centers. Management guided 2026 EPS of $11\u201312, with the Calpine integration adding roughly 20% to earnings."
+ },
+ "LEU": {
+  "biz": "Centrus Energy is the only U.S.-owned, U.S.-licensed uranium enricher, supplying low-enriched uranium fuel to nuclear utilities and pioneering HALEU \u2014 the higher-assay fuel required by most next-generation small modular reactor designs. It operates the Piketon, Ohio enrichment facility under long-term utility contracts.",
+  "cat": "Backlog jumped to $4.5B extending through 2040, anchored by a ~$900M Department of Energy HALEU award, and the Piketon HALEU cascade reached commercial operation on July 1, 2026. New off-take agreements with SMR developers Oklo and X-energy \u2014 including non-dilutive customer prepayments \u2014 de-risk the capacity build as nuclear demand accelerates on AI-driven electricity growth."
+ }
+}
