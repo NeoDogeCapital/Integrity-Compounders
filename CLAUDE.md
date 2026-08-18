@@ -623,6 +623,13 @@ When starting a new session, I:
 
 ## 16. WHITEPAPER ROADMAP ITEMS (ACTIVE)
 
+> **See [PROCESS_REVIEW_2026-08.md](PROCESS_REVIEW_2026-08.md)** — institutional
+> review + Fiscal.ai-enabled roadmap (P0 earnings-day watch & quarterly
+> primary-source contamination audit; P1 REST-key data fallback, adjusted-vs-GAAP
+> wedge, insider monitor, theme tags, segment deceleration; P2 screener parity).
+> Buyback yield now computed from Fiscal standardized cash flow (holdings done
+> 2026-08-18). MCP is session-bound — scripted access needs FISCAL_API_KEY.
+
 These are enhancements in progress — flag any data that would support them:
 
 1. **Estimate-revision velocity signal (3rd derivative)** → ESV in v9 is the beginning.
