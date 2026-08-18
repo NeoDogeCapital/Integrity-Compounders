@@ -1,0 +1,11 @@
+interface:
+  display_name: "Fiscal"
+  short_description: "Fiscal.ai public-company research and analysis"
+  default_prompt: "Use $fiscal to investigate this public-company question with source-linked Fiscal.ai data."
+dependencies:
+  tools:
+    - type: "mcp"
+      value: "fiscal-ai"
+      description: "Fiscal.ai public-company data and research connector"
+      transport: "streamable_http"
+      url: "https://api.fiscal.ai/mcp"
