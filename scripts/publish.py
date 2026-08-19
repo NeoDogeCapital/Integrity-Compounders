@@ -45,6 +45,7 @@ def generate_all():
         ("Factor exposure HTML", f"{py} scripts/factor_exposure.py --html"),
         ("Analytics engine",     f"{py} scripts/ic_analytics.py --html"),
         ("Quad map",             f"{py} scripts/quad_map.py"),
+        ("Model feed (JSON)",    f"{py} scripts/model_feed.py"),
     ]
 
     for label, cmd in steps:
