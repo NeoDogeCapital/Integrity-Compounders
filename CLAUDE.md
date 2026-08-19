@@ -120,6 +120,16 @@ Dashboard: https://NeoDogeCapital.github.io/Integrity-Compounders/
 - Profile: 5-6 = FULL_COMPOUNDER, 3-4 = QUALITY_WATCH, 1-2 = DEVELOPING, 0 = QUALITY_CONCERN
 - Missing data = DATA_INCOMPLETE (never a false FAIL). Indicators do NOT remove names.
 
+## WEEKLY FISCAL MCP RUNBOOK (session-bound — Claude runs these via /fiscal)
+- **Earnings-day watch:** refresh `next_earnings_date` for holdings from
+  `events_calendar`; trigger_monitor's "EARNINGS THIS WEEK" section reads it.
+  On a holding's report day: pull the transcript, check guidance language.
+- **Monthly:** insider-transaction sweep for holdings (net open-market
+  buys/sells 90d); buyback-yield refresh from standardized cash flow.
+- **Quarterly:** primary-source contamination audit — recompute EPS vs GP
+  acceleration from Fiscal filed statements for every EPS_ENGINEERED name and
+  every held Q1 name (FCX verified 2026-08-18: EPS +54% vs GP −8%).
+
 ## DAILY WORKFLOW
 ```
 python scripts/data_updater.py

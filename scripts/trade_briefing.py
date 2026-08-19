@@ -202,7 +202,9 @@ def build_doc(tickers, model, notes, title, intro, out_path):
              "Pillar Composite (P1/P2/P3)", f"{fmt(d['comp'],2)}  ({fmt(d['p1'])}/{fmt(d['p2'])}/{fmt(d['p3'])})"),
             ("Latest Qtr Surprise (EPS/Rev)",
              f"{fmt(d['eps_s'])}% / {fmt(d['rev_s'])}%" if d["eps_s"] is not None else "n/a*",
-             "Fwd 3Y CAGR (Rev/EPS)", f"{fmt(d['fwd_rev'])}% / {fmt(d['fwd_eps'])}%"),
+             "Fwd 3Y CAGR (Rev/EPS)",
+             f"{fmt(d['fwd_rev'])}% / {fmt(d['fwd_eps'])}%"
+             + (" †" if (d['fwd_eps'] is not None and abs(d['fwd_eps']) > 300) or (d['fwd_rev'] is not None and abs(d['fwd_rev']) > 300) else "")),
             ("Beta", fmt(d["beta"], 2), "Last Price", f"${d['price']:,.2f}" if d["price"] else "—"),
         ]
         tbl = doc.add_table(rows=len(rows), cols=4)
@@ -239,6 +241,9 @@ def build_doc(tickers, model, notes, title, intro, out_path):
                "fields (quad, QGS tier, earnings quality, quarterly surprise) not computed this "
                "cycle; pillar scores and momentum are from the model's last full evaluation.",
             8.5, GREY, italic=True)
+    p = doc.add_paragraph()
+    run(p, "† Forward CAGR beyond ±300% is a base-effect artifact of near-zero trailing figures — "
+           "treat as directional only. ", 8.5, GREY, italic=True)
     p = doc.add_paragraph()
     run(p, "Source: Integrity Compounders Alpha System v12.1. Company facts from public reporting. "
            "For internal use by Integrity Wealth Partners advisors only — not for client "

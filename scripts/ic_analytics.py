@@ -471,7 +471,11 @@ td{{padding:5px 0;border-bottom:1px solid #f1f5f9}}
 <div class="hdr"><h1>Analytics Engine — Performance &amp; Risk</h1>
 <div class="s">Integrity Compounders · inception {df.index[0].date()} → {df.index[-1].date()} · {m['n']} trading days · benchmark SPY · rf = 13-week T-bill ({rf_mean:.2%})</div></div>
 <div class="wrap">
-<div class="card"><h2>Headline</h2><div class="kpis">{kh}</div></div>
+<div class="card"><h2>Headline</h2><div class="kpis">{kh}</div>
+<div class="note" style="margin-top:10px"><b>Return decomposition.</b> With beta {m['beta']:.2f} and CAPM alpha {m['alpha']:+.1%},
+returns are predominantly <b>market regime + convexity</b> (up-capture {m['up_capture']:.2f} vs down {m['down_capture']:.2f}), not
+stock-level selection. The primary portfolio risk is a regime turn, not idiosyncratic misses; theme exposure to AI infrastructure
+spans multiple GICS sectors and exceeds the IT sector weight alone.</div></div>
 <div class="card">{C[0]}</div>
 <div class="card">{C[1]}</div>
 <div class="grid2"><div class="card">{C[2]}</div><div class="card">{C[3]}</div></div>
