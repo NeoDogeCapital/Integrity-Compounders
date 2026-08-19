@@ -261,6 +261,19 @@ def q_active_triggers(cur) -> list[dict]:
             for r in cur.fetchall()]
 
 
+def q_technical_alerts(cur) -> list[dict]:
+    """Unprocessed TrendSpider webhook alerts (ic_technical_alerts). Empty until
+    the webhook receiver is deployed — see TRENDSPIDER_INTEGRATION.md."""
+    try:
+        cur.execute("""SELECT ticker, alert_name, signal, price, received_at
+            FROM ic_technical_alerts WHERE processed = FALSE
+            ORDER BY received_at DESC LIMIT 20""")
+        return [{"ticker": r[0], "name": r[1], "signal": r[2], "price": r[3],
+                 "at": r[4]} for r in cur.fetchall()]
+    except Exception:
+        return []
+
+
 def q_allocation_drift(cur) -> list[dict]:
     cur.execute("""
         SELECT COUNT(*) FROM positions WHERE status='ACTIVE'
@@ -434,6 +447,14 @@ def print_monitor(data: dict):
 
     # 8. Allocation drift
     drifts = data["drifts"]
+    ta = data.get("tech_alerts", [])
+    print(f"\n  7b. TECHNICAL ALERTS (TrendSpider webhooks, unprocessed)")
+    if ta:
+        for a in ta:
+            print(f"     ⚡ {a['ticker']:<6} {a['signal'] or ''}  {a['name'] or ''}  @{a['price'] or ''} ({a['at']:%m-%d %H:%M})")
+    else:
+        print("     (none — receiver not yet deployed or no alerts fired)")
+
     print(f"  8. ALLOCATION DRIFT (>{1}% from target)")
     if not drifts:
         print("     ✅ All positions within 1% of target\n")
@@ -659,6 +680,7 @@ def main():
         "five_gate_alerts":q_five_gate_alerts(cur),
         "watchlist_alerts":q_watchlist_alerts(cur),
         "triggers":        q_active_triggers(cur),
+        "tech_alerts": q_technical_alerts(cur),
         "drifts":          q_allocation_drift(cur),
     }
     data["quad_provisional"], data["quad_confirmed"], data["q3_holdings"] = q_quad_alerts(cur)

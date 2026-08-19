@@ -1,0 +1,111 @@
+# TrendSpider → Integrity Compounders Integration
+
+**Status 2026-08-18:** model side READY (`ic_technical_alerts` table live,
+`trigger_monitor` §7b surfaces unprocessed alerts). Waiting on: (1) a
+TrendSpider subscription with webhook alerts, (2) one-time `supabase login` so
+the webhook receiver can be deployed as an Edge Function.
+
+## Why
+
+The model's technicals refresh weekly with the pipeline. TrendSpider's
+multi-factor alerts fire intraday and can POST a webhook to any URL — giving
+the model event-driven technical eyes between runs. Alerts land in
+`ic_technical_alerts`; `trigger_monitor` surfaces them; nothing trades
+automatically.
+
+## Architecture
+
+```
+TrendSpider alert (intraday, IP 3.12.143.24)
+   └─ HTTP POST, JSON body (5s timeout)
+        └─ Supabase Edge Function  /functions/v1/ts-alert?token=<SHARED_SECRET>
+             └─ INSERT INTO ic_technical_alerts
+                  └─ trigger_monitor §7b  (+ journal-worthy on holdings)
+```
+
+Receiver notes: TrendSpider lets you define the JSON **body** (with variable
+substitution) but not auth headers, so authentication is a random shared
+secret in the URL query string plus an allowlist on the sender IP
+(3.12.143.24). The function runs `--no-verify-jwt`.
+
+## Webhook body template (paste into each TrendSpider alert)
+
+```json
+{
+  "ticker": "%alert_symbol%",
+  "alert_name": "%alert_name%",
+  "signal": "EMA35_RECLAIM",
+  "price": "%last_price%",
+  "event": "%price_action_event%"
+}
+```
+
+Set `signal` per alert from the vocabulary: `EMA35_RECLAIM`, `EMA35_LOSS`,
+`DMA200_BREAK`, `DMA200_RECLAIM`, `TRENDLINE_BREAK`, `OVEREXTENDED_2SIG`,
+`OVERSOLD_2SIG`.
+
+## Alert set to configure (model-native definitions)
+
+For each of the 28 holdings (multi-symbol alerts or a watchlist scan):
+
+| Alert | Condition (V12.1-native) | signal |
+| --- | --- | --- |
+| 35D EMA reclaim | close crosses **above** EMA(35), daily | `EMA35_RECLAIM` |
+| 35D EMA loss | close crosses **below** EMA(35), daily | `EMA35_LOSS` |
+| 200-DMA break | close crosses **below** SMA(200), daily | `DMA200_BREAK` |
+| 200-DMA reclaim | close crosses **above** SMA(200), daily | `DMA200_RECLAIM` |
+| Overextension | close > SMA(200) + 2 × stdev(close, 200) | `OVEREXTENDED_2SIG` |
+| Auto-trendline break | TrendSpider automated trendline violation, daily | `TRENDLINE_BREAK` |
+
+Use TrendSpider **custom JS indicators** to reproduce the exact V12.1
+definitions (EMA span 35; extension = (close − SMA200)/stdev200) so its alerts
+match the model's `extension_flag` semantics rather than approximating them.
+
+## Edge Function (deploy after `supabase login`)
+
+`supabase/functions/ts-alert/index.ts`:
+
+```ts
+Deno.serve(async (req) => {
+  const url = new URL(req.url);
+  if (url.searchParams.get("token") !== Deno.env.get("TS_WEBHOOK_SECRET"))
+    return new Response("forbidden", { status: 403 });
+  let body: Record<string, unknown> = {};
+  try { body = await req.json(); } catch { /* text/plain fallback */ }
+  const { createClient } = await import("jsr:@supabase/supabase-js@2");
+  const db = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
+  await db.from("ic_technical_alerts").insert({
+    ticker: String(body.ticker ?? "").toUpperCase() || null,
+    alert_name: body.alert_name ?? null,
+    signal: body.signal ?? null,
+    price: Number(body.price) || null,
+    payload: body,
+  });
+  return new Response("ok");
+});
+```
+
+Deploy steps (one-time, needs Niko's interactive login):
+```bash
+brew install supabase/tap/supabase
+supabase login                       # opens browser
+supabase link --project-ref ouxapwkmqvpuegvwxlab
+supabase secrets set TS_WEBHOOK_SECRET=$(openssl rand -hex 24)
+supabase functions deploy ts-alert --no-verify-jwt
+# webhook URL = https://ouxapwkmqvpuegvwxlab.supabase.co/functions/v1/ts-alert?token=<secret>
+```
+
+## Also worth building in TrendSpider (no integration needed)
+
+- **Strategy Tester:** backtest the "35D-EMA reclaim while below 200-DMA"
+  entry (the CEG/LEU selection logic) — currently untested intuition.
+- **Scanner:** run the V12.1 custom indicators across the ~330-name universe
+  for daily technical-state snapshots.
+
+## Processing discipline
+
+`trigger_monitor` shows unprocessed rows; after review, mark them:
+`UPDATE ic_technical_alerts SET processed=TRUE WHERE id IN (...)`. Alerts on
+holdings that coincide with a DISTRIBUTE/Q3 model state are journal-worthy
+(§12). Webhook alerts are TIMING context — per V12.1, momentum never drives an
+exit on its own.
