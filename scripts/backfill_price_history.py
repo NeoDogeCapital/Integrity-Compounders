@@ -79,6 +79,22 @@ def backfill(period=PERIOD, only_missing=False, limit=None, only_ticker=None):
         try:
             df = yf.Ticker(_yf_symbol(tk)).history(period=period, auto_adjust=False)
             if df is None or df.empty:
+                # Fiscal.ai REST fallback (needs FISCAL_API_KEY in .env; no-op without it).
+                # Covers delisted/class-share names yfinance can't serve (CSGS, MOG.A).
+                # Fiscal closes are split- but not dividend-adjusted — acceptable for
+                # gap-fill on otherwise-empty names.
+                try:
+                    from fiscal_api import fetch_prices_fallback
+                    fb = fetch_prices_fallback(tk)
+                except Exception:
+                    fb = None
+                if fb:
+                    recs = [(tk, d, None, None, None, None, px, vol, None) for d, px, vol in fb]
+                    pgx.execute_values(cur, UPSERT, recs, page_size=500)
+                    conn.commit()
+                    ok += 1; rows_total += len(recs)
+                    print(f"  {i:>3}/{len(tickers)}  {tk:<6} ok via Fiscal fallback ({len(recs)} bars)")
+                    continue
                 fail += 1; failed.append(tk); continue
             df = df.reset_index()
             adj_col = "Adj Close" if "Adj Close" in df.columns else "Close"
