@@ -274,6 +274,19 @@ def q_technical_alerts(cur) -> list[dict]:
         return []
 
 
+def q_signal_changes(cur) -> list[dict]:
+    """Universe-wide daily technical signal changes (ic_signal_changes, last 3 days).
+    Populated by scripts/daily_signals.py (launchd, post-close)."""
+    try:
+        cur.execute("""SELECT change_date, ticker, field, old_value, new_value, is_holding
+            FROM ic_signal_changes WHERE change_date >= CURRENT_DATE - 3
+            ORDER BY is_holding DESC, change_date DESC, ticker LIMIT 40""")
+        return [{"date": r[0], "ticker": r[1], "field": r[2], "old": r[3],
+                 "new": r[4], "held": r[5]} for r in cur.fetchall()]
+    except Exception:
+        return []
+
+
 def q_allocation_drift(cur) -> list[dict]:
     cur.execute("""
         SELECT COUNT(*) FROM positions WHERE status='ACTIVE'
@@ -454,6 +467,16 @@ def print_monitor(data: dict):
             print(f"     ⚡ {a['ticker']:<6} {a['signal'] or ''}  {a['name'] or ''}  @{a['price'] or ''} ({a['at']:%m-%d %H:%M})")
     else:
         print("     (none — receiver not yet deployed or no alerts fired)")
+
+    sc = data.get("signal_changes", [])
+    print(f"\n  7c. DAILY SIGNAL CHANGES (universe, last 3 days · ★ = holding)")
+    if sc:
+        for s in sc[:20]:
+            print(f"     {'★' if s['held'] else ' '} {s['ticker']:<6} {s['field']:<16} {s['old']} → {s['new']}  ({s['date']:%m-%d})")
+        if len(sc) > 20:
+            print(f"     … {len(sc)-20} more")
+    else:
+        print("     (none in the last 3 days)")
 
     print(f"  8. ALLOCATION DRIFT (>{1}% from target)")
     if not drifts:
@@ -681,6 +704,7 @@ def main():
         "watchlist_alerts":q_watchlist_alerts(cur),
         "triggers":        q_active_triggers(cur),
         "tech_alerts": q_technical_alerts(cur),
+        "signal_changes": q_signal_changes(cur),
         "drifts":          q_allocation_drift(cur),
     }
     data["quad_provisional"], data["quad_confirmed"], data["q3_holdings"] = q_quad_alerts(cur)
