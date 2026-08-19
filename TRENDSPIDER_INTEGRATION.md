@@ -118,28 +118,37 @@ quad, QGS tier, earnings quality, trend, extension, 12-1 momentum, theme, held
 flag). Public, same exposure as the dashboards; no positions/P&L included.
 
 TrendSpider custom-JS indicators fetch it with `request.http()` and paint the
-model's read on whatever chart is open. Starter indicator (paste into
-TrendSpider's custom indicator editor; adjust paint calls to taste):
+model's read on whatever chart is open. Verified against the official scripting
+docs (charts.trendspider.com/scripting/docs, 2026-08-18): `describe_indicator`
+must be the first call; every code path must execute the same number of
+`paint()` calls; paint options use `name`/`color`/`style`; labels go via
+`paint_label_at_line`. `request.http` auto-parses JSON responses, caches per
+URL for the TTL (min 5s), 3s hard timeout, 2MB max — and TrendSpider explicitly
+recommends single-URL "all tickers" feeds like ours for scanner cache hits.
 
 ```javascript
-// IC Model Overlay — Integrity Compounders alignment/state on any chart
-const FEED = "https://NeoDogeCapital.github.io/Integrity-Compounders/model_feed.json";
-const data = await request.http(FEED, 500);
-const m = data && data.tickers && data.tickers[current.symbol];
-if (m) {
-  // sub-chart line at the alignment score (0-100); 65/35 = accumulate/distribute
-  paint(series_of(m.alignment_v3), { title: "IC Alignment v3", color: "#C9A84C" });
-  paint(series_of(65), { title: "Accumulate", color: "#1E7B4F", style: "dotted" });
-  paint(series_of(35), { title: "Distribute", color: "#B54334", style: "dotted" });
-  // state label
-  describe(`${current.symbol}: ${m.quad || "-"} · ${m.qgs_tier || "-"} · ` +
-           `${m.trend || "-"}/${m.extension || "-"} · EQ ${m.earnings_quality || "-"}` +
-           (m.held ? " · HELD" : ""));
-}
+describe_indicator('IC Model v3', 'lower', { decimals: 0, shortName: 'IC v3' });
+
+const FEED = 'https://NeoDogeCapital.github.io/Integrity-Compounders/model_feed.json';
+const data = await request.http(FEED, 900); // 15-min cache; feed changes at most daily
+assert(!data.error, `IC feed fetch failed: ${data.error}`);
+
+const tickers = data.tickers || {};
+const m = tickers[current.ticker] || tickers[current.symbol] || null;
+const score = m && m.alignment_v3 != null ? m.alignment_v3 : null;
+
+paint(score != null ? series_of(score) : constants.empty_series,
+      { name: 'Alignment v3', color: '#C9A84C', thickness: 2 });
+const accLine = paint(horizontal_line(65),
+      { name: 'Accumulate ≥65', color: '#1E7B4F', style: 'dotted' });
+paint(horizontal_line(35), { name: 'Distribute <35', color: '#B54334', style: 'dotted' });
+
+const label = m
+  ? `${m.quad || '-'} · ${m.qgs_tier || '-'} · ${m.trend || '-'}/${m.extension || '-'}` +
+    ` · EQ ${m.earnings_quality || '-'}` + (m.held ? ' · HELD' : '')
+  : 'not in IC universe';
+paint_label_at_line(accLine, close.length - 1, label, { vertical_align: 'top' });
 ```
 
-Notes: exact painting/label helpers vary by TrendSpider's editor version —
-`request.http` and `current.symbol` are the documented core; consult their
-custom-JS docs for `paint`/`describe` equivalents if the template needs
-adjusting. The `alignment_history` array in the feed supports plotting the
-score as a weekly series once mapped to chart bars.
+The `alignment_history` array in the feed supports plotting the score as a
+weekly series later via `land_points_onto_series(timestamps, values, time)`.
