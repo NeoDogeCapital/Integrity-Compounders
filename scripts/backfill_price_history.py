@@ -116,7 +116,21 @@ def backfill(period=PERIOD, only_missing=False, limit=None, only_ticker=None):
             if i % 25 == 0 or i == len(tickers):
                 print(f"  {i:>3}/{len(tickers)}  {tk:<6} ok ({len(recs)} bars)")
         except Exception as e:
-            conn.rollback(); fail += 1; failed.append(tk)
+            # The Supabase pooler drops long-lived connections mid-run
+            # ("server closed the connection unexpectedly"); a rollback on the
+            # dead handle then raised InterfaceError and killed the whole job
+            # (daily-signals failed 08-19..08-21 this way). Reconnect and move on.
+            try:
+                conn.rollback()
+            except Exception:
+                try:
+                    conn.close()
+                except Exception:
+                    pass
+                conn = psycopg2.connect(settings.DATABASE_URL)
+                cur = conn.cursor()
+                print(f"  {i:>3}/{len(tickers)}  {tk:<6} reconnected after dropped connection")
+            fail += 1; failed.append(tk)
             if i % 25 == 0:
                 print(f"  {i:>3}/{len(tickers)}  {tk:<6} FAIL {str(e)[:50]}")
 

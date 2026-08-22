@@ -39,7 +39,20 @@ def main():
     a = ap.parse_args()
     today = date.today()
 
-    conn = psycopg2.connect(settings.DATABASE_URL)
+    # launchd fires this at 17:30 (or on wake after a missed run); the network is
+    # often not up yet at wake — the 08-19 run died on DNS resolution. Retry.
+    import time
+    conn = None
+    for attempt in range(5):
+        try:
+            conn = psycopg2.connect(settings.DATABASE_URL)
+            break
+        except psycopg2.OperationalError as e:
+            print(f"[daily-signals] DB connect failed (attempt {attempt+1}/5): {str(e)[:80]}")
+            time.sleep(30 * (attempt + 1))
+    if conn is None:
+        print("[daily-signals] giving up — no database connection")
+        return 1
     conn.autocommit = True
     cur = conn.cursor()
     cur.execute("""CREATE TABLE IF NOT EXISTS ic_signal_state_daily (
