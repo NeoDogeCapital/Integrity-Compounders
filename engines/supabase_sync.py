@@ -302,8 +302,25 @@ def sync_universe_to_supabase(df: pd.DataFrame, data_date: str) -> None:
         ic_sb_cols = [sb for _, sb, _ in IC_PIPELINE_FIELDS]
         all_cols = base_cols + ic_sb_cols
 
+        # Columns owned by the Fiscal trailing apply (scripts/fiscal_trailing_apply.py)
+        # once a row is stamped trailing_source LIKE 'fiscal%': the CSV's versions
+        # of these are not allowed to displace primary-source values on re-sync.
+        # On a fresh (unstamped) row the CSV values land normally and the apply /
+        # data_updater carry-forward take over afterwards.
+        fiscal_owned = {
+            "roic_trailing", "fcf_yield_current", "revenue_3y_cagr_trailing",
+            "net_debt_ebitda", "eps_3y_cagr_trailing", "capex_to_rev", "op_margin",
+            "gates_pass", "gate_quality", "gate_durability", "gate_cash_conv",
+            "gate_reinvestment", "gate_balance_sheet", "gate_capital_efficiency",
+            "gate_pricing_power", "gate_operational_efficiency", "gate_cash_conversion",
+            "gate_growth_durability", "watch_flags", "quality_profile",
+            "indicators_pass", "earnings_quality_flag", "eps_acceleration",
+            "gp_acceleration",
+        }
         update_pairs = ", ".join(
-            f"{c} = EXCLUDED.{c}"
+            (f"{c} = CASE WHEN company_market_data.trailing_source LIKE 'fiscal%%' "
+             f"THEN company_market_data.{c} ELSE EXCLUDED.{c} END"
+             if c in fiscal_owned else f"{c} = EXCLUDED.{c}")
             for c in all_cols
             if c not in ("company_id", "ticker", "data_date")
         )

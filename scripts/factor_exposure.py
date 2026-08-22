@@ -149,6 +149,11 @@ def run_factor_exposure(save_html: bool = False, save_snapshot: bool = False):
     fcf_margin   = wavg('fcf_margin_trailing')
     fcf_conv     = wavg('fcf_conversion')
     roic_spread  = wavg('roic_spread')
+    if roic_spread is None:
+        # roic_spread was a yfinance-path derivative (ROE proxy − 8% WACC); with
+        # ROIC now Fiscal-sourced, derive the spread from the real ROIC instead.
+        _r = wavg('roic_trailing')
+        roic_spread = (_r - 8.0) if _r is not None else None
 
     # Valuation
     fcf_yield_curr = wavg('fcf_yield_current')
@@ -339,7 +344,13 @@ def _generate_html(n, fwd_rev_growth, momentum_3m, momentum_12m, beta, market_ca
     def row(label, val, ok_fn=None, note="", raw_val=None):
         # ok_fn receives raw_val (numeric) not the formatted string
         check_val = raw_val if raw_val is not None else val
-        ok = None if ok_fn is None else ok_fn(check_val)
+        # A missing metric renders as 'N/A' — never hand that string to a numeric check.
+        if ok_fn is not None and isinstance(check_val, str):
+            try:
+                check_val = float(check_val.rstrip('%×x'))
+            except ValueError:
+                check_val = None
+        ok = None if (ok_fn is None or check_val is None) else ok_fn(check_val)
         icon = "" if ok is None else ("✅" if ok else "⚠️")
         color = "#e6edf3" if ok is None else ("#00aa44" if ok else "#C9A84C")
         note_html = f' <span style="font-size:11px;color:#6b7280">{note}</span>' if note else ""

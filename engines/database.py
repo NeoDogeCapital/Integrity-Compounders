@@ -535,8 +535,10 @@ def log_universe_membership(entered, exited, data_date, holdings=None) -> dict:
             + [(now, data_date, t, "EXIT", 1 if t in holds else 0, None) for t in exited])
     if rows:
         with get_conn() as conn:
+            # OR IGNORE: re-running a refresh for the same screen date must be
+            # idempotent against the (data_date, ticker, event) natural key.
             conn.executemany(
-                """INSERT INTO universe_membership_log
+                """INSERT OR IGNORE INTO universe_membership_log
                    (logged_at, data_date, ticker, event, is_holding, note)
                    VALUES (?,?,?,?,?,?)""", rows)
     return {"entered": entered, "exited": exited,

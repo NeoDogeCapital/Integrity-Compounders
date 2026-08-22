@@ -368,6 +368,49 @@ ON CONFLICT (company_id, data_date) DO UPDATE SET
     institutional_own_pct       = EXCLUDED.institutional_own_pct
 """
 
+def carry_forward_fiscal_trailing(conn, as_of=None) -> int:
+    """Keep Fiscal-sourced trailing fundamentals on today's rows.
+
+    Freshly-inserted daily rows carry yfinance fallback fundamentals. For any
+    name whose most recent prior row was stamped by fiscal_trailing_apply.py,
+    copy those Fiscal-sourced values forward so yfinance never displaces them
+    (yfinance remains the fallback for names Fiscal doesn't cover; roic_trailing
+    has no yfinance writer at all any more). Called from main() here AND from
+    run.py update, which drives the same upsert directly.
+    """
+    cur = conn.cursor()
+    cur.execute("ALTER TABLE company_market_data ADD COLUMN IF NOT EXISTS trailing_source TEXT")
+    cur.execute("""
+        UPDATE company_market_data t SET
+            roic_trailing            = p.roic_trailing,
+            gross_margin_trailing    = p.gross_margin_trailing,
+            fcf_margin_trailing      = p.fcf_margin_trailing,
+            op_margin                = p.op_margin,
+            fcf_yield_current        = p.fcf_yield_current,
+            net_debt_ebitda          = p.net_debt_ebitda,
+            revenue_3y_cagr_trailing = p.revenue_3y_cagr_trailing,
+            eps_3y_cagr_trailing     = p.eps_3y_cagr_trailing,
+            buyback_yield            = p.buyback_yield,
+            capex_to_rev             = p.capex_to_rev,
+            roic_spread              = p.roic_trailing - 8.0,
+            trailing_source          = p.trailing_source
+        FROM company_market_data p
+        WHERE t.data_date = %s
+          AND p.ticker = t.ticker
+          AND p.data_date = (
+              SELECT MAX(d2.data_date) FROM company_market_data d2
+              WHERE d2.ticker = t.ticker AND d2.data_date < t.data_date
+                AND d2.trailing_source LIKE 'fiscal%%')
+          AND (t.trailing_source IS NULL OR t.trailing_source NOT LIKE 'fiscal%%')
+    """, (as_of or date.today(),))
+    n = cur.rowcount
+    if n:
+        print(f"  [carry-forward] {n} names kept Fiscal-sourced trailing fundamentals")
+    conn.commit()
+    cur.close()
+    return n
+
+
 def upsert_market_data(company_id: str, ticker: str, data: dict, conn) -> None:
     today = date.today()
     cur = conn.cursor()
@@ -520,42 +563,7 @@ def main():
             n_failed += 1
 
     print(f"\n  SUMMARY: {n_ok} updated  |  {n_partial} partial  |  {n_failed} failed\n")
-
-    # ── Fiscal trailing carry-forward ─────────────────────────────────────────
-    # Today's freshly-inserted rows carry yfinance fallback fundamentals. For any
-    # name whose most recent prior row was stamped by fiscal_trailing_apply.py,
-    # copy those Fiscal-sourced trailing fundamentals forward so the yfinance
-    # values never displace them (yfinance remains the fallback for names Fiscal
-    # doesn't cover). roic_trailing has no yfinance writer at all any more.
-    cur = conn.cursor()
-    cur.execute("ALTER TABLE company_market_data ADD COLUMN IF NOT EXISTS trailing_source TEXT")
-    cur.execute("""
-        UPDATE company_market_data t SET
-            roic_trailing            = p.roic_trailing,
-            gross_margin_trailing    = p.gross_margin_trailing,
-            fcf_margin_trailing      = p.fcf_margin_trailing,
-            op_margin                = p.op_margin,
-            fcf_yield_current        = p.fcf_yield_current,
-            net_debt_ebitda          = p.net_debt_ebitda,
-            revenue_3y_cagr_trailing = p.revenue_3y_cagr_trailing,
-            eps_3y_cagr_trailing     = p.eps_3y_cagr_trailing,
-            buyback_yield            = p.buyback_yield,
-            capex_to_rev             = p.capex_to_rev,
-            trailing_source          = p.trailing_source
-        FROM company_market_data p
-        WHERE t.data_date = %s
-          AND p.ticker = t.ticker
-          AND p.data_date = (
-              SELECT MAX(d2.data_date) FROM company_market_data d2
-              WHERE d2.ticker = t.ticker AND d2.data_date < t.data_date
-                AND d2.trailing_source LIKE 'fiscal%%')
-          AND (t.trailing_source IS NULL OR t.trailing_source NOT LIKE 'fiscal%%')
-    """, (date.today(),))
-    if cur.rowcount:
-        print(f"  [carry-forward] {cur.rowcount} names kept Fiscal-sourced trailing fundamentals")
-    conn.commit()
-    cur.close()
-
+    carry_forward_fiscal_trailing(conn)
     print_sector_check(conn)
 
     print("\n[Signal Layer] Loading Fiscal AI signals...")

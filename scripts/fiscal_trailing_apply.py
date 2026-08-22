@@ -179,7 +179,9 @@ def main():
                    else "DEVELOPING" if n_pass >= 1 else "QUALITY_CONCERN")
 
         sets = {
-            "roic_trailing": vals["roic_pct"], "gross_margin_trailing": vals["gross_pct"],
+            "roic_trailing": vals["roic_pct"],
+            "roic_spread": (round(vals["roic_pct"] - 8.0, 2) if vals["roic_pct"] is not None else None),
+            "gross_margin_trailing": vals["gross_pct"],
             "op_margin": vals["op_pct"], "fcf_margin_trailing": vals["fcf_margin_pct"],
             "fcf_yield_current": pct(fy), "net_debt_ebitda": vals["nd_ebitda"],
             "revenue_3y_cagr_trailing": vals["rev3y_pct"], "eps_3y_cagr_trailing": pct(eps3),

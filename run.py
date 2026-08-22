@@ -651,8 +651,10 @@ def cmd_full_update():
     # ── LAYER 4: Pillar scores — fast batch (score_only, no memo/web) ────────
     print(f"\n  [2/4] Layer 4 — pillar scoring {len(after_tickers)} companies (scores only, no memos)...")
     import warnings, sys as _sys
-    from scripts.company_scorer import score_ticker, get_conn as scorer_conn
-    sc_conn = scorer_conn()
+    # V12 scorer API: score_company() opens its own connection and skips names
+    # scored within 30 days unless force=True (the old score_ticker import broke
+    # this step silently after the V12 refactor).
+    from scripts.company_scorer import score_company
     scored_ok = scored_skip = scored_fail = 0
 
     # Suppress yfinance deprecation warnings that flood batch output
@@ -661,8 +663,8 @@ def cmd_full_update():
 
         for i, ticker in enumerate(sorted(after_tickers), 1):
             try:
-                result = score_ticker(
-                    ticker, sc_conn,
+                result = score_company(
+                    ticker,
                     interactive=False, force=False,
                     score_only=True   # ← skips memo + web research
                 )
@@ -675,13 +677,13 @@ def cmd_full_update():
             except Exception as e:
                 scored_fail += 1
 
-    sc_conn.close()
     print(f"  [2/4] Pillar scoring: {scored_ok} scored · {scored_skip} skipped (recent) · {scored_fail} failed")
 
     # ── Data updater (yfinance prices) ─────────────────────────────────────────
     print(f"\n  [3/4] Updating live prices via yfinance for all {len(after_tickers)} names...")
     try:
-        from scripts.data_updater import fetch_ticker_data, upsert_market_data, get_conn as du_conn
+        from scripts.data_updater import (fetch_ticker_data, upsert_market_data,
+                                          carry_forward_fiscal_trailing, get_conn as du_conn)
         from datetime import date
         du_c = du_conn(); du_c.autocommit = False
         du_cur = du_c.cursor()
@@ -701,6 +703,7 @@ def cmd_full_update():
             except Exception:
                 du_c.rollback()
                 du_fail += 1
+        carry_forward_fiscal_trailing(du_c)
         du_c.close()
         print(f"  [3/4] yfinance update: {du_ok} updated · {du_fail} failed")
     except Exception as e:
