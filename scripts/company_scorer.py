@@ -110,7 +110,13 @@ Return ONLY valid JSON in exactly this format — no markdown, no preamble:
 
 
 def get_conn():
-    return psycopg2.connect(settings.DATABASE_URL)
+    # Supabase's pooler drops idle sessions; without these a dead socket blocks
+    # forever (a universe batch hung 4h on 2026-08-22). Fail fast, then the
+    # per-name retry in main() picks it up.
+    return psycopg2.connect(settings.DATABASE_URL, connect_timeout=15,
+                            keepalives=1, keepalives_idle=30, keepalives_interval=10,
+                            keepalives_count=3,
+                            options="-c statement_timeout=90000")
 
 
 def get_company_data(cur, ticker):
@@ -352,7 +358,14 @@ def score_company(ticker: str, interactive: bool = False, memo_only: bool = Fals
     p1_reinv = float(scores.get('p1_reinvestment_score', p1))
     eq_flag = d.get('earnings_quality_flag')
 
-    # Write to Supabase
+    # Write to Supabase on a FRESH connection: the one opened above sat idle
+    # through the Claude call and the pooler drops idle sessions, which killed
+    # two universe batches mid-run with "could not receive data from server".
+    try:
+        conn.close()
+    except Exception:
+        pass
+    conn = get_conn(); cur = conn.cursor()
     cur.execute("""
         INSERT INTO company_scores (
             company_id, score_date, scored_by,
@@ -488,6 +501,8 @@ def main():
     parser.add_argument('--ticker',      type=str)
     parser.add_argument('--quarterly',   action='store_true')
     parser.add_argument('--review-all',  action='store_true')
+    parser.add_argument('--stale-days',  type=int, default=90,
+                        help="--review-all: re-score names whose last score is older than N days (30 = monthly)")
     parser.add_argument('--memo',        type=str)
     parser.add_argument('--interactive', action='store_true')
     parser.add_argument('--force',       action='store_true')
@@ -513,7 +528,7 @@ def main():
     if args.quarterly:
         cur.execute("SELECT ticker FROM companies WHERE in_portfolio=TRUE AND active=TRUE ORDER BY ticker")
     elif args.review_all:
-        cutoff = date.today() - timedelta(days=90)
+        cutoff = date.today() - timedelta(days=args.stale_days)
         cur.execute("""
             SELECT DISTINCT c.ticker FROM companies c
             LEFT JOIN company_scores cs ON cs.company_id=c.id
@@ -530,7 +545,15 @@ def main():
     print(f"\n  Batch scoring {len(tickers)} companies (score_only mode)...")
     ok = skipped = failed = 0
     for t in tickers:
-        result = score_company(t, interactive=False, score_only=True, force=args.force)
+        # One bad name (transient pooler drop, API hiccup) must not end the batch.
+        result = None
+        for attempt in range(2):
+            try:
+                result = score_company(t, interactive=False, score_only=True, force=args.force)
+                break
+            except Exception as e:
+                print(f"  ⚠️  {t}: {type(e).__name__}: {str(e)[:80]}"
+                      f"{' — retrying' if attempt == 0 else ''}")
         if result is True:    ok += 1
         elif result is False: skipped += 1
         else:                 failed += 1
