@@ -130,6 +130,22 @@ Dashboard: https://NeoDogeCapital.github.io/Integrity-Compounders/
   acceleration from Fiscal filed statements for every EPS_ENGINEERED name and
   every held Q1 name (FCX verified 2026-08-18: EPS +54% vs GP −8%).
 
+## MICRO COMPOUNDERS SLEEVE (separate universe — personal accounts)
+- **Standing satellite universe** (added 2026-09-02): V12 quant stack applied to a
+  dedicated Fiscal AI micro/small-cap screen. **Structurally firewalled from the
+  core model**: results live in `micro_universe_snapshot`; micro-only tickers get
+  `companies` rows with `active = FALSE, universe_tag = 'micro'` so every core
+  query/report/factor cross-section ignores them; names overlapping the core
+  universe are never modified by the micro pipeline.
+- Run per new micro screen (drop CSV in `data/raw/micro/`):
+  `python scripts/micro_universe.py data/raw/micro/<csv>` — computes quads, QGS,
+  quality indicators, contamination flag, GER, trend/extension/12-1 momentum;
+  writes the snapshot + `outputs/reports/micro_universe_<date>.html` (NOT
+  published to GitHub Pages). `--score N` LLM pillar-scores the top N
+  micro-only names. Pillar floors are otherwise UNVERIFIED on micro names.
+- These are speculative personal-account satellites — never client positions,
+  never in advisor comms, never counted against core sector caps.
+
 ## DAILY WORKFLOW
 ```
 python scripts/data_updater.py

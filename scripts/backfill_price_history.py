@@ -63,6 +63,9 @@ def backfill(period=PERIOD, only_missing=False, limit=None, only_ticker=None):
 
     if only_ticker:
         want = {t.strip().upper() for t in ([only_ticker] if isinstance(only_ticker, str) else only_ticker)}
+        # explicit tickers are honored even when not in the active core universe
+        # (the micro sleeve backfills inactive, micro-tagged names)
+        tickers += sorted(want - set(tickers))
         tickers = [t for t in tickers if t.upper() in want]
     if only_missing:
         cur.execute("SELECT ticker FROM ic_price_history GROUP BY ticker HAVING COUNT(*) >= 257")

@@ -157,7 +157,7 @@ def get_company_data(cur, ticker):
             FROM company_market_data WHERE company_id = c.id
             ORDER BY data_date DESC LIMIT 1
         ) cmd ON TRUE
-        WHERE c.ticker = %s AND c.active = TRUE
+        WHERE c.ticker = %s
     """, (ticker.upper(),))
     return cur.fetchone(), [d[0] for d in cur.description]
 
