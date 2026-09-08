@@ -38,6 +38,17 @@ TRIGGER_TYPES = [
 
 # ── Model state lookup ────────────────────────────────────────────────────────
 
+def _int_or(v, default):
+    """int() that tolerates None and NaN (pandas float NaN from an absent screen row)."""
+    try:
+        if v is None:
+            return default
+        f = float(v)
+        return default if f != f else int(f)   # f != f  →  NaN
+    except (TypeError, ValueError):
+        return default
+
+
 def get_model_state(ticker: str) -> dict:
     """
     Pull and compute current model state for a ticker.
@@ -64,15 +75,17 @@ def get_model_state(ticker: str) -> dict:
     return {
         "company":           str(r.get("company", "")),
         "quadrant":          str(r.get("quadrant", "N/A")),
-        "quad_provisional":  int(r.get("quad_provisional", 1) or 1),
-        "ev_rank":           int(r.get("ev_rank", 99) or 99),
+        # NaN-safe: a name that has EXITED the screen has null quad/EV — and screen
+        # exits are prime sell candidates, so logging must never fail on them.
+        "quad_provisional":  _int_or(r.get("quad_provisional"), 1),
+        "ev_rank":           _int_or(r.get("ev_rank"), 99),
         "alignment_score":   float(r.get("alignment_score", 0) or 0),
         "alignment_bucket":  str(r.get("alignment_bucket", "Neutral")),
         "pead_flag":         str(r.get("pead_flag", "—")),
         "x_axis":            float(r.get("earnings_mom_roc", 0) or 0),
         "y_axis":            float(r.get("multiple_roc", 0) or 0),
         "fcf_spread_tag":    str(r.get("fcf_spread_tag", "—")),
-        "convergence_signals": int(r.get("convergence_count", 0) or 0),
+        "convergence_signals": _int_or(r.get("convergence_count"), 0),
         "stock_price":       float(r.get("stock_price", 0) or 0),
     }
 
