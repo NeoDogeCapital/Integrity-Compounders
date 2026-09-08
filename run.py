@@ -298,7 +298,11 @@ def cmd_status():
 
 
 def cmd_refresh():
-    """Load newest CSV from data/raw/, run full pipeline, persist to DB."""
+    """Load newest CSV from data/raw/, run full pipeline, persist to DB.
+
+    Returns the ticker set of the loaded screener CSV (None if no CSV found),
+    so callers can scope diffs to the current week's screen membership.
+    """
     raw_dir = ROOT / "data" / "raw"
     csvs = sorted(raw_dir.glob("*.csv"), key=lambda p: p.stat().st_mtime, reverse=True)
     if not csvs:
@@ -397,6 +401,8 @@ def cmd_refresh():
         print(f"\n  ⚠️  {len(danger)} DANGEROUS MIGRATION(S) DETECTED — IMMEDIATE REVIEW REQUIRED:\n")
         print(danger.to_string(index=False))
         print()
+
+    return curr_t
 
 
 def cmd_quad_snapshot():
@@ -627,7 +633,7 @@ def cmd_full_update():
 
     # ── LAYER 1-3 + Supabase sync: refresh ─────────────────────────────────────
     print(f"  [1/4] Running layers 1–3 (indicators → quad+flags → alignment + Supabase sync)...")
-    cmd_refresh()
+    screen_tickers = cmd_refresh()   # ticker set of the current week's screener CSV
 
     # ── Snapshot AFTER ─────────────────────────────────────────────────────────
     df_after = get_universe("all")
@@ -739,9 +745,17 @@ def cmd_full_update():
         changes.append({"type": "REMOVED", "ticker": t,
                          "detail": "No longer in screener universe"})
 
-    # Quad changes (only for names that existed before)
+    # Quad changes (only for names that existed before AND sit in the current
+    # week's screener CSV — out-of-screen rows get quad values backfilled by
+    # the Supabase pull_enriched step, so diffing them reports stale cloud
+    # quads as migrations, e.g. "TMO nan → Q1"). Cosmetic filter only:
+    # quad_refresher.py stays the canonical 2-month migration state machine.
     for ticker, new_quad in after_quads.items():
+        if screen_tickers is not None and ticker not in screen_tickers:
+            continue
         old_quad = before_quads.get(ticker)
+        if pd.isna(old_quad) or pd.isna(new_quad):
+            continue
         if old_quad and old_quad != new_quad and old_quad not in ("N/A","") and new_quad not in ("N/A",""):
             changes.append({"type": "QUAD_CHANGE", "ticker": ticker,
                              "detail": f"{old_quad} → {new_quad}  score: {after_scores.get(ticker,0):.1f}"})
