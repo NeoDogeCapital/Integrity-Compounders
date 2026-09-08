@@ -181,20 +181,27 @@ def q_quad_alerts(cur) -> tuple[list, list]:
 
 
 def q_thesis_alerts(cur) -> list[dict]:
-    # Most recent review per company with watch/review/broken status
+    # Latest review per company FIRST (created_at breaks same-day ties),
+    # THEN filter — otherwise an old WATCH/REVIEW/BROKEN row outlives a
+    # newer INTACT one and shows as a stale alert.
     cur.execute("""
-        SELECT DISTINCT ON (cr.company_id)
-            c.ticker, c.company_name, cr.thesis_status,
-            cr.review_date, cr.what_has_changed
-        FROM company_reviews cr
-        JOIN companies c ON c.id = cr.company_id
-        WHERE cr.thesis_status IN ('WATCH','REVIEW','BROKEN')
-          AND c.in_portfolio=TRUE AND c.active=TRUE
-        ORDER BY cr.company_id, cr.review_date DESC
+        SELECT ticker, company_name, thesis_status, review_date,
+               what_has_changed, stale_data
+        FROM (
+            SELECT DISTINCT ON (cr.company_id)
+                c.ticker, c.company_name, cr.thesis_status,
+                cr.review_date, cr.what_has_changed, cr.stale_data
+            FROM company_reviews cr
+            JOIN companies c ON c.id = cr.company_id
+            WHERE c.in_portfolio=TRUE AND c.active=TRUE
+            ORDER BY cr.company_id, cr.review_date DESC, cr.created_at DESC
+        ) latest
+        WHERE thesis_status IN ('WATCH','REVIEW','BROKEN')
+        ORDER BY ticker
     """)
     thesis = [
         {"ticker": r[0], "name": r[1], "status": r[2],
-         "date": r[3], "notes": r[4]}
+         "date": r[3], "notes": r[4], "stale": bool(r[5])}
         for r in cur.fetchall()
     ]
 
@@ -415,7 +422,8 @@ def print_monitor(data: dict):
     print(f"  4. THESIS ALERTS ({total_thesis})")
     for t in thesis:
         icon = "🚨" if t["status"] == "BROKEN" else "⚠️ "
-        print(f"     {icon} {t['ticker']:<6} Thesis: {t['status']}  (review: {t['date']})")
+        stale = "  [STALE DATA]" if t.get("stale") else ""
+        print(f"     {icon} {t['ticker']:<6} Thesis: {t['status']}  (review: {t['date']}){stale}")
     for r in upcoming_reviews:
         print(f"     📅 {r['ticker']:<6} Review due in {r['days']}d ({r['date']})")
     if total_thesis == 0:
@@ -561,7 +569,8 @@ def generate_html(data: dict, output_path: Path) -> None:
     thesis_html = ""
     for t in data["thesis_alerts"]:
         icon = "🚨" if t["status"]=="BROKEN" else "⚠️"
-        thesis_html += alert_row(icon, f"<strong>{t['ticker']}</strong> Thesis: {t['status']} (reviewed: {t['date']})",
+        stale = " — STALE DATA" if t.get("stale") else ""
+        thesis_html += alert_row(icon, f"<strong>{t['ticker']}</strong> Thesis: {t['status']} (reviewed: {t['date']}){stale}",
                                  "high" if t["status"]=="BROKEN" else "medium")
     for r in data["upcoming_reviews"]:
         thesis_html += alert_row("📅", f"<strong>{r['ticker']}</strong> Review due in {r['days']}d ({r['date']})", "medium")

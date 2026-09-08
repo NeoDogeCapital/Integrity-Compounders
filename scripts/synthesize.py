@@ -61,14 +61,21 @@ def fetch_weekly_data(since_days: int, cur) -> dict:
     data["migrations"] = [dict(zip(["ticker","from","to","date","confirmed"], r))
                           for r in cur.fetchall()]
 
-    # Active concerns
+    # Active concerns — latest review per company first (created_at breaks
+    # same-day ties), THEN filter, so a newer INTACT review clears the alert
     cur.execute("""
-        SELECT DISTINCT ON (cr.company_id) c.ticker, c.company_name, cr.thesis_status, cr.review_date
-        FROM company_reviews cr JOIN companies c ON c.id=cr.company_id
-        WHERE cr.thesis_status IN ('WATCH','REVIEW','BROKEN') AND c.in_portfolio=TRUE
-        ORDER BY cr.company_id, cr.review_date DESC
+        SELECT ticker, company_name, thesis_status, review_date, stale_data
+        FROM (
+            SELECT DISTINCT ON (cr.company_id)
+                c.ticker, c.company_name, cr.thesis_status, cr.review_date, cr.stale_data
+            FROM company_reviews cr JOIN companies c ON c.id=cr.company_id
+            WHERE c.in_portfolio=TRUE
+            ORDER BY cr.company_id, cr.review_date DESC, cr.created_at DESC
+        ) latest
+        WHERE thesis_status IN ('WATCH','REVIEW','BROKEN')
+        ORDER BY ticker
     """)
-    data["concerns"] = [dict(zip(["ticker","name","status","date"], r)) for r in cur.fetchall()]
+    data["concerns"] = [dict(zip(["ticker","name","status","date","stale"], r)) for r in cur.fetchall()]
 
     # Watchlist approaching
     cur.execute("""
@@ -120,7 +127,7 @@ QUAD MIGRATIONS ({len(data['migrations'])}):
 {fmt_list(data['migrations'], lambda m: f"  {m['ticker']}: {m['from']}→{m['to']} {'CONFIRMED' if m['confirmed'] else 'provisional'}")}
 
 ACTIVE THESIS CONCERNS:
-{fmt_list(data['concerns'], lambda c: f"  {c['ticker']}: {c['status']} ({c['date']})")}
+{fmt_list(data['concerns'], lambda c: f"  {c['ticker']}: {c['status']} ({c['date']}){' [STALE DATA]' if c.get('stale') else ''}")}
 
 WATCHLIST APPROACHING:
 {fmt_list(data['watchlist'], lambda w: f"  {w['ticker']}: {w['status']} score:{w.get('score','?')} — {w.get('why','')[:60]}")}
